@@ -1,7 +1,7 @@
 use diwa::{ Context, error::{Error, VoiceError}, ConvertedQuery, LazyMetadata };
 use serenity::utils::Color;
 use songbird::create_player;
-
+use crate::commands::utils::format_duration;
 
 
 #[poise::command(slash_command, prefix_command)]
@@ -41,7 +41,7 @@ pub async fn play(ctx: Context<'_>, query: String) -> Result<(), Error> {
                 diwa::AudioSource::YouTube { video_id } => format!("[{}](https://youtu.be/{}) | {}", metadata.title, video_id, format_duration(metadata.duration, None)),
                 diwa::AudioSource::File { path: _ } => format!("{} | {}", metadata.title, format_duration(metadata.duration, None))
             };
-            ctx.send(|msg| msg
+            let reply_handle = ctx.send(|msg| msg
                 .ephemeral(true)
                 .reply(true)
                 .allowed_mentions(|mentions| mentions.replied_user(true))
@@ -50,6 +50,7 @@ pub async fn play(ctx: Context<'_>, query: String) -> Result<(), Error> {
                     .description(description)
                     .color(Color::PURPLE))
             ).await?;
+            ctx.data().add_to_cleanup(reply_handle, std::time::Duration::from_secs(10)).await;
         },
         ConvertedQuery::LivePlaylist(metainputs) => {
             let metainputs_len = metainputs.len();
@@ -60,7 +61,7 @@ pub async fn play(ctx: Context<'_>, query: String) -> Result<(), Error> {
                 track_handle.write_lazy_metadata(metadata).await;
                 handler_guard.enqueue(track);
             }
-            ctx.send(|msg| msg
+            let reply_handle = ctx.send(|msg| msg
                 .ephemeral(true)
                 .reply(true)
                 .allowed_mentions(|mentions| mentions.replied_user(true))
@@ -68,6 +69,7 @@ pub async fn play(ctx: Context<'_>, query: String) -> Result<(), Error> {
                     .title(format!("Added {} tracks:", metainputs_len))
                     .color(Color::PURPLE))
             ).await?;
+            ctx.data().add_to_cleanup(reply_handle, std::time::Duration::from_secs(10)).await;
         },
         ConvertedQuery::PendingPlaylist(pending_metainputs) => {
             let metainputs_len = pending_metainputs.len();
@@ -86,7 +88,7 @@ pub async fn play(ctx: Context<'_>, query: String) -> Result<(), Error> {
                 let (track, _) = create_player(input);
                 handler_guard.enqueue(track);
             }
-            ctx.send(|msg| msg
+            let reply_handle = ctx.send(|msg| msg
                 .ephemeral(true)
                 .reply(true)
                 .allowed_mentions(|mentions| mentions.replied_user(true))
@@ -94,26 +96,9 @@ pub async fn play(ctx: Context<'_>, query: String) -> Result<(), Error> {
                     .title(format!("Added {} tracks:", metainputs_len))
                     .color(Color::PURPLE))
             ).await?;
+            ctx.data().add_to_cleanup(reply_handle, std::time::Duration::from_secs(10)).await;
         }
     }
 
     Ok(())
-}
-
-pub fn format_duration(duration: std::time::Duration, length: Option<u32>) -> String {
-    let s = duration.as_secs() % 60;
-    let m = duration.as_secs() / 60 % 60;
-    let h = duration.as_secs() / 3600 % 24;
-    let d = duration.as_secs() / 86400;
-    let mut formatted_duration = format!("{:0>2}:{:0>2}:{:0>2}:{:0>2}", d, h, m, s);
-    if let Some(length) = length {
-        formatted_duration = formatted_duration.split_at(formatted_duration.len() - length as usize).1.to_owned();
-    } else {
-        while formatted_duration.len() > 5 {
-            if let Some(stripped_formatted_duration) = formatted_duration.strip_prefix("00:") {
-                formatted_duration = stripped_formatted_duration.to_owned();
-            }
-        }
-    }
-    formatted_duration
 }

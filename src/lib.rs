@@ -4,17 +4,24 @@ pub mod scrapers;
 pub mod convert_query;
 mod stream_media_source;
 
-use poise::serenity_prelude::UserId;
-use serenity::{async_trait, prelude::TypeMapKey};
+use poise::{serenity_prelude::UserId, ReplyHandle};
+use serenity::{async_trait, prelude::TypeMapKey, model::channel::Message};
 use songbird::{input::{ Input, restartable::Restart, Restartable }, tracks::TrackHandle};
 use error::{ Error, AppError };
 use convert_query::MediaType;
 use songbird::input::{Metadata as SongbirdMetadata, Codec, Container};
+use tokio::sync::Mutex;
 
 pub type Context<'a> = poise::Context<'a, Data, error::Error>;
 pub struct Data {
+    pub cleanups: Mutex<Vec<Cleanup>>,
     pub spotify_client: api_integration::spotify::SpotifyClient,
     pub youtube_client: api_integration::youtube::YouTubeClient
+}
+
+pub struct Cleanup {
+    pub message: Message,
+    pub delay: std::time::Duration
 }
 
 #[derive(Debug, Clone, Hash)]
@@ -45,7 +52,6 @@ impl Into<SongbirdMetadata> for VideoMetadata {
             source_url,
             ..Default::default()
         }
-
     }
 }
 
@@ -121,6 +127,12 @@ impl Data {
                 ConvertedQuery::LiveVideo(MetaInput { input: restartable.into(), metadata })
             }
         });
+    }
+
+    pub async fn add_to_cleanup<'a>(&self, reply_handle: ReplyHandle<'a>, delay: std::time::Duration) {
+        if let Ok(message) = reply_handle.into_message().await {
+            self.cleanups.lock().await.push(Cleanup { message, delay});
+        }
     }
 }
 

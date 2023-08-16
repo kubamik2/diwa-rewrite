@@ -81,6 +81,6 @@ fn video_to_metadata(video: &Video) -> Result<VideoMetadata, Error> {
     
     let duration: std::time::Duration = iso8601::Duration::from_str(&duration_string).map_err(|_| YoutubeApiError::DurationString { duration_string })?.into();
     let audio_source = AudioSource::YouTube { video_id };
-    
-    Ok(VideoMetadata { title, duration, audio_source, added_by: None })
+
+    Ok(VideoMetadata { title, duration, audio_source })
 }

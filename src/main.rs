@@ -7,7 +7,6 @@ static DISCORD_TOKEN_ENV: &str = "DISCORD_TOKEN_TESTS";
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     dotenv::dotenv()?;
-    std::fs::File::create("test3").unwrap();
     let youtube_client = diwa::api_integration::youtube::YouTubeClient::new().await?;
     let spotify_client = diwa::api_integration::spotify::SpotifyClient::new()?;
 
@@ -20,7 +19,8 @@ async fn main() -> Result<(), Error> {
         .options(poise::FrameworkOptions { 
             commands: vec![
                 commands::ping::ping(),
-                commands::play::play()
+                commands::play::play(),
+                commands::queue::queue()
             ],
             prefix_options: poise::PrefixFrameworkOptions { prefix: Some("-".to_owned()), ..Default::default() },
             post_command: |ctx| Box::pin(post_command(ctx)),
@@ -40,7 +40,7 @@ async fn main() -> Result<(), Error> {
 }
 
 async fn post_command<'a>(ctx: diwa::Context<'a>) {
-    let mut cleanups = ctx.data().cleanups.lock().await;
+    let mut cleanups = ctx.data().cleanups.lock().await.clone();
     cleanups.sort_by(|a, b| b.delay.cmp(&a.delay));
     let mut time_slept = std::time::Duration::ZERO;
     while let Some(cleanup) = cleanups.pop() {

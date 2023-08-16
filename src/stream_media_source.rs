@@ -33,7 +33,6 @@ impl StreamMediaSource {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .spawn()?;
-
         Ok(Self { buffer: Cursor::new(vec![]), stdout: child.stdout.unwrap(), position: 0, end: 0 })
     }
 }

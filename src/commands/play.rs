@@ -1,15 +1,19 @@
-use diwa::{ Context, error::{Error, VoiceError}, ConvertedQuery, LazyMetadata };
+use std::time::Duration;
+
+use diwa::{ Context, error::Error, ConvertedQuery, metadata::LazyMetadata, utils::format_duration };
 use serenity::utils::Color;
 use songbird::create_player;
-use crate::commands::utils::format_duration;
-
+use crate::commands::{
+    utils::send_timed_error,
+    error::VoiceError
+};
 
 #[poise::command(slash_command, prefix_command)]
 pub async fn play(ctx: Context<'_>, query: String) -> Result<(), Error> {
     let guild = ctx.guild().unwrap();
     let user_voice = guild.voice_states.get(&ctx.author().id).ok_or(VoiceError::UserNotInVoice)?;
 
-    let manager = songbird::get(&ctx.serenity_context()).await.unwrap(); // TODO custom error?
+    let manager = songbird::get(&ctx.serenity_context()).await.ok_or(VoiceError::ManagerNone)?;
     let handler = manager.get_or_insert(guild.id);
     let mut handler_guard = handler.lock().await;
 
@@ -20,26 +24,28 @@ pub async fn play(ctx: Context<'_>, query: String) -> Result<(), Error> {
         
     if bot_current_channel_id.is_some() {
         if bot_current_channel_id != user_current_channel_id {
-            // TODO diff channel err
+            send_timed_error(&ctx, "You're in a different voice channel", Some(Duration::from_secs(10))).await;
         }
     }
 
-    handler_guard.join(user_voice.channel_id.unwrap()).await?; // TODO custom error?
+    handler_guard.join(user_voice.channel_id.unwrap()).await?;
 
-    let converted_query = ctx.data().convert_query(&query, Some(ctx.author().id)).await?;
+    let converted_query = ctx.data().convert_query(&query, ctx.author().into()).await?;
     let mut was_empty = handler_guard.queue().is_empty();
 
     match converted_query{
         ConvertedQuery::LiveVideo(metainput) => {
             let input = metainput.input;
-            let metadata = metainput.metadata;
+            let track_metadata = metainput.track_metadata;
+            
             let (track, mut track_handle) = create_player(input);
-            track_handle.write_lazy_metadata(metadata.clone()).await;
+            track_handle.write_lazy_metadata(track_metadata.clone()).await;
             handler_guard.enqueue(track);
 
-            let description = match metadata.audio_source {
-                diwa::AudioSource::YouTube { video_id } => format!("[{}](https://youtu.be/{}) | {}", metadata.title, video_id, format_duration(metadata.duration, None)),
-                diwa::AudioSource::File { path: _ } => format!("{} | {}", metadata.title, format_duration(metadata.duration, None))
+            let video_metadata = track_metadata.video_metadata;
+            let description = match video_metadata.audio_source {
+                diwa::AudioSource::YouTube { video_id } => format!("[{}](https://youtu.be/{}) | {}", video_metadata.title, video_id, format_duration(video_metadata.duration, None)),
+                diwa::AudioSource::File { path: _ } => format!("{} | {}", video_metadata.title, format_duration(video_metadata.duration, None))
             };
             let reply_handle = ctx.send(|msg| msg
                 .ephemeral(true)
@@ -56,7 +62,7 @@ pub async fn play(ctx: Context<'_>, query: String) -> Result<(), Error> {
             let metainputs_len = metainputs.len();
             for metainput in metainputs {
                 let input = metainput.input;
-                let metadata = metainput.metadata;
+                let metadata = metainput.track_metadata;
                 let (track, mut track_handle) = create_player(input);
                 track_handle.write_lazy_metadata(metadata).await;
                 handler_guard.enqueue(track);
@@ -75,17 +81,16 @@ pub async fn play(ctx: Context<'_>, query: String) -> Result<(), Error> {
             let metainputs_len = pending_metainputs.len();
             for pending_metainput in pending_metainputs.into_iter() {
                 let input = pending_metainput.input;
-                let user_id = pending_metainput.user_id;
+                let added_by = pending_metainput.added_by;
+                let (track, mut track_handle) = create_player(input);
+                track_handle.write_added_by(added_by).await;
                 if was_empty {
-                    let (track, mut track_handle) = create_player(input);
-                    let mut metadata = track_handle.generate_lazy_metadata().await?;
-                    metadata.added_by = user_id;
+                    let metadata = track_handle.generate_lazy_metadata().await?;
                     track_handle.write_lazy_metadata(metadata).await;
                     handler_guard.enqueue(track);
                     was_empty = false;
                     continue;
                 }
-                let (track, _) = create_player(input);
                 handler_guard.enqueue(track);
             }
             let reply_handle = ctx.send(|msg| msg

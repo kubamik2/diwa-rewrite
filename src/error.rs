@@ -12,9 +12,3 @@ pub enum AppError {
     #[error("\"{value}\" object is missing")]
     MissingValue { value: String }
 }
-
-#[derive(Debug, ThisError)]
-pub enum VoiceError {
-    #[error("user not connected to voice")]
-    UserNotInVoice
-}

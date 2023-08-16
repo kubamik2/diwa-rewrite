@@ -18,7 +18,6 @@ async fn main() -> Result<(), Error> {
     let framework: poise::FrameworkBuilder<diwa::Data, Error> = poise::Framework::builder()
         .options(poise::FrameworkOptions { 
             commands: vec![
-                commands::ping::ping(),
                 commands::play::play(),
                 commands::queue::queue()
             ],

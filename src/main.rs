@@ -19,7 +19,12 @@ async fn main() -> Result<(), Error> {
         .options(poise::FrameworkOptions { 
             commands: vec![
                 commands::play::play(),
-                commands::queue::queue()
+                commands::queue::queue(),
+                commands::song::song(),
+                commands::leave::leave(),
+                commands::pause::pause(),
+                commands::resume::resume(),
+                commands::skip::skip()
             ],
             prefix_options: poise::PrefixFrameworkOptions { prefix: Some("-".to_owned()), ..Default::default() },
             post_command: |ctx| Box::pin(post_command(ctx)),
@@ -34,6 +39,7 @@ async fn main() -> Result<(), Error> {
             })
         })
         .client_settings(|client_settings| client_settings.register_songbird());
+    
     framework.run().await.unwrap();
     Ok(())
 }

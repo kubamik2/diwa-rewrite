@@ -9,21 +9,20 @@ use futures::stream::*;
 
 static TRACKS_PER_PAGE: usize = 10;
 
-#[poise::command(slash_command, prefix_command, guild_only)]
+#[poise::command(slash_command, prefix_command, guild_only, ephemeral)]
 pub async fn queue(ctx: Context<'_>, page: Option<usize>) -> Result<(), Error> {
     let mut page = page.unwrap_or(1).max(1);
     page -= 1;
     let guild = ctx.guild().unwrap();
     let manager = songbird::get(&ctx.serenity_context()).await.ok_or(VoiceError::ManagerNone)?;
     if let Some(handler) = manager.get(guild.id) {
-        let typing = ctx.defer_or_broadcast().await;
         let (queue_embed, mut last_page) = assemble_embed(handler.clone(), page).await;
-        let reply_handle = ctx.send(|msg| msg.
-            allowed_mentions(|mentions| mentions.replied_user(true))
+        let reply_handle = ctx.send(|msg| msg
+            .reply(true)
+            .allowed_mentions(|mentions| mentions.replied_user(true))
             .embed(|embed| {embed.clone_from(&queue_embed); embed})
             .components(|components| components.set_action_row(create_buttons(page, last_page))) 
         ).await?;
-        drop(typing);
         let mut collector = reply_handle.message().await?.await_component_interactions(ctx)
             .timeout(Duration::from_secs(30))
             .author_id(ctx.author().id)
@@ -88,8 +87,10 @@ async fn assemble_embed(handler: Arc<Mutex<Call>>, page: usize) -> (CreateEmbed,
     let queue_len = handler_guard.queue().len();
     let mut stringified_metadatas: Vec<String> = vec![];
     let queue = handler_guard.queue().current_queue().into_iter().skip(1 + (TRACKS_PER_PAGE * page) as usize);
+    let current_track = handler_guard.queue().current();
+    drop(handler_guard);
     let mut looping = false;
-    if let Some(current_track) = handler_guard.queue().current() {
+    if let Some(current_track) = current_track {
         let track_metadata = current_track.read_lazy_metadata().await.unwrap_or_default();
         let playtime = match current_track.get_info().await {
             Ok(info) => {
@@ -104,7 +105,7 @@ async fn assemble_embed(handler: Arc<Mutex<Call>>, page: usize) -> (CreateEmbed,
         let stringified_metadata = track_metadata.video_metadata.to_queue_string(playtime);
         stringified_metadatas.push(stringified_metadata);
     }
-    drop(handler_guard);
+
     for (i, track_handle) in queue.enumerate() {
         if i == TRACKS_PER_PAGE { break; }
         let track_metadata = match track_handle.read_lazy_metadata().await {

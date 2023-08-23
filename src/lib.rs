@@ -9,7 +9,7 @@ mod stream_media_source;
 use poise::ReplyHandle;
 use serenity::{async_trait, model::channel::Message};
 use songbird::input::{ Input, restartable::Restart, Restartable };
-use error::{ Error, AppError };
+use error::Error;
 use convert_query::MediaType;
 use songbird::input::{Metadata as SongbirdMetadata, Codec, Container};
 use tokio::sync::Mutex;

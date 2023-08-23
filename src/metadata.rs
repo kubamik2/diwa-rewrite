@@ -185,7 +185,7 @@ impl songbird::events::EventHandler for LazyMetadataEventHandler {
                         if let Ok(track_metadata) = current_track.read_awake_lazy_metadata().await {
                             if let Ok(message) = self.channel_id.send_message(&self.http, |msg| msg.set_embed(create_now_playing_embed(track_metadata))).await {
                                 tokio::time::sleep(Duration::from_secs(10)).await;
-                                message.delete(&self.http).await;
+                                let _ = message.delete(&self.http).await;
                             }
                         }
                     }

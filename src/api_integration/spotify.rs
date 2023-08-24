@@ -4,11 +4,18 @@ use rspotify::{
     scopes, Credentials, OAuth, ClientCredsSpotify
 };
 use crate::error::{ Error, AppError };
+use thiserror::Error as ThisError;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SpotifyTrackData {
     pub title: String,
     pub artists: Vec<String>
+}
+
+#[derive(Debug, ThisError)]
+pub enum SpotifyApiError {
+    #[error("playlist is empty")]
+    EmptyPlaylist
 }
 
 impl From<FullTrack> for SpotifyTrackData {
@@ -74,6 +81,7 @@ impl SpotifyClient {
             }
         }
         
+        if tracks.is_empty() { return Err(SpotifyApiError::EmptyPlaylist.into()); }
         Ok(tracks)
     }
 
@@ -86,6 +94,7 @@ impl SpotifyClient {
             tracks.push(SpotifyTrackData::from(item));
         }
 
+        if tracks.is_empty() { return Err(SpotifyApiError::EmptyPlaylist.into()); }
         Ok(tracks)
     }
 }

@@ -27,6 +27,7 @@ impl StreamMediaSource {
         let video = rustube::Video::from_id(id).await?;
         let best_audio = video.best_audio().unwrap();
         let audio_stream_url = best_audio.signature_cipher.url.clone();
+
         let child = Command::new("ffmpeg")
             .args(["-i", audio_stream_url.as_str()])
             .args(FFMPEG_ARGS).stderr(Stdio::null())

@@ -1,5 +1,5 @@
 use diwa::{ Context, error::Error, metadata::LazyMetadata };
-use poise::serenity_prelude::{ ReactionType, MessageComponentInteraction };
+use poise::{serenity_prelude::{ ReactionType, MessageComponentInteraction }, ReplyHandle};
 use serenity::{ builder::{ CreateEmbed, CreateActionRow }, utils::Color };
 use std::{ sync::Arc, time::Duration };
 use tokio::sync::Mutex;
@@ -11,10 +11,13 @@ static TRACKS_PER_PAGE: usize = 10;
 
 #[poise::command(slash_command, prefix_command, guild_only, ephemeral)]
 pub async fn queue(ctx: Context<'_>, page: Option<usize>) -> Result<(), Error> {
+    // represent the page as an index
     let mut page = page.unwrap_or(1).max(1);
     page -= 1;
+
     let guild = ctx.guild().unwrap();
     let manager = songbird::get(&ctx.serenity_context()).await.ok_or(VoiceError::ManagerNone)?;
+
     if let Some(handler) = manager.get(guild.id) {
         let (queue_embed, mut last_page) = assemble_embed(handler.clone(), page).await;
         let reply_handle = ctx.send(|msg| msg
@@ -23,22 +26,24 @@ pub async fn queue(ctx: Context<'_>, page: Option<usize>) -> Result<(), Error> {
             .embed(|embed| {embed.clone_from(&queue_embed); embed})
             .components(|components| components.set_action_row(create_buttons(page, last_page))) 
         ).await?;
+
         let mut collector = reply_handle.message().await?.await_component_interactions(ctx)
             .timeout(Duration::from_secs(30))
             .author_id(ctx.author().id)
             .build();
+
         while let Some(message_collector) = collector.next().await {
-            match message_collector.data.custom_id.as_str() {
+            match message_collector.data.custom_id.as_str() { // ?? ignore error or return
                 "prev" => {
                     page -= 1;
-                    update_queue_embed(page, &mut last_page, message_collector, ctx, handler.clone()).await;
+                    update_queue_embed(page, &mut last_page, ctx, handler.clone(), &reply_handle, message_collector).await?;
                 },
                 "next" => {
                     page += 1;
-                    update_queue_embed(page, &mut last_page, message_collector, ctx, handler.clone()).await;
+                    update_queue_embed(page, &mut last_page, ctx, handler.clone(), &reply_handle, message_collector).await?;
                 },
                 "reload" => {
-                    update_queue_embed(page, &mut last_page, message_collector, ctx, handler.clone()).await;
+                    update_queue_embed(page, &mut last_page, ctx, handler.clone(), &reply_handle, message_collector).await?;
                 }
                 _ => ()
             }
@@ -83,13 +88,17 @@ pub fn create_queue_embed(stringified_metadatas: Vec<String>, page: usize, last_
 
 async fn assemble_embed(handler: Arc<Mutex<Call>>, page: usize) -> (CreateEmbed, usize) {
     search_burst(handler.clone(), page).await;
+
     let handler_guard = handler.lock().await;
     let queue_len = handler_guard.queue().len();
-    let mut stringified_metadatas: Vec<String> = vec![];
     let queue = handler_guard.queue().current_queue().into_iter().skip(1 + (TRACKS_PER_PAGE * page) as usize);
     let current_track = handler_guard.queue().current();
     drop(handler_guard);
+
+    let mut stringified_metadatas: Vec<String> = vec![];
     let mut looping = false;
+
+    // assemble the currently playing field
     if let Some(current_track) = current_track {
         let track_metadata = current_track.read_lazy_metadata().await.unwrap_or_default();
         let playtime = match current_track.get_info().await {
@@ -106,6 +115,7 @@ async fn assemble_embed(handler: Arc<Mutex<Call>>, page: usize) -> (CreateEmbed,
         stringified_metadatas.push(stringified_metadata);
     }
 
+    // assemble queued tracks
     for (i, track_handle) in queue.enumerate() {
         if i == TRACKS_PER_PAGE { break; }
         let track_metadata = match track_handle.read_lazy_metadata().await {
@@ -127,13 +137,13 @@ pub fn create_buttons(page: usize, last_page: usize) -> CreateActionRow {
     components
 }
 
-pub async fn update_queue_embed(page: usize, last_page: &mut usize, message_collector: Arc<MessageComponentInteraction>, ctx: Context<'_>, handler: Arc<Mutex<Call>>) {
-    let channel_id = message_collector.channel_id.0;
-    let message_id = message_collector.message.id.0;
-    if let Ok(mut message) = ctx.serenity_context().http.get_message(channel_id, message_id).await {
-        let (new_queue_embed, new_last_page) = assemble_embed(handler, page).await;
-        *last_page = new_last_page;
-        let _ = message.edit(ctx, |f| f.set_embed(new_queue_embed).components(|components| components.set_action_row(create_buttons(page, *last_page)))).await;
-        let _ = message_collector.defer(ctx).await;
-    }
+pub async fn update_queue_embed<'a>(page: usize, last_page: &mut usize, ctx: Context<'a>, handler: Arc<Mutex<Call>>, reply_handle: &ReplyHandle<'a>, message_collector: Arc<MessageComponentInteraction>) -> Result<(), Error> {
+    let (new_queue_embed, new_last_page) = assemble_embed(handler, page).await;
+    *last_page = new_last_page;
+    let _ = reply_handle.edit(ctx.clone(), |msg| msg
+        .embed(|embed| {embed.clone_from(&new_queue_embed); embed})
+        .components(|components| components.create_action_row(|action_row| {action_row.clone_from(&create_buttons(page, *last_page)); action_row}))
+    ).await?;
+    let _ = message_collector.defer(ctx).await;
+    Ok(())
 }

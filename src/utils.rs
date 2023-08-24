@@ -13,6 +13,12 @@ pub fn format_duration(duration: std::time::Duration, length: Option<usize>) -> 
     } else {
         while let Some(stripped_formatted_duration) = formatted_duration.strip_prefix("00:") {
             formatted_duration = stripped_formatted_duration.to_owned();
+            if formatted_duration.len() == 5 {
+                if formatted_duration.chars().nth(0) == Some('0') {
+                    formatted_duration.remove(0);
+                }
+                break;
+            }
         }
     }
     formatted_duration

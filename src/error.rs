@@ -10,5 +10,7 @@ pub enum AppError {
     #[error("\"{content}\" Content Type Is Not Supported")]
     UnsupportedContent { content: String },
     #[error("\"{value}\" object is missing")]
-    MissingValue { value: String }
+    MissingValue { value: String },
+    #[error("empty playlist")]
+    EmptyPlaylist
 }

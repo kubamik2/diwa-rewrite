@@ -40,6 +40,8 @@ pub async fn same_voice_channel(guild: &Guild, user_id: &UserId, handler: Arc<Mu
                 if let Some(bot_voice_channel_id) = bot_voice.channel_id {
                     return user_voice_channel_id.0 == bot_voice_channel_id.0;
                 }
+            } else {
+                return true;
             }
         }
     }

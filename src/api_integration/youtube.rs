@@ -13,7 +13,9 @@ pub enum YoutubeApiError {
     #[error("\"{value}\" object is missing")]
     MissingValue { value: String },
     #[error("could not parse the video duration string")]
-    DurationString { duration_string: String }
+    DurationString { duration_string: String },
+    #[error("playlist is empty")]
+    EmptyPlaylist
 }
 
 impl YouTubeClient {
@@ -53,6 +55,9 @@ impl YouTubeClient {
             .max_results(50)
             .doit().await?.1.items
             .ok_or(YoutubeApiError::MissingValue { value: "playlist.items".to_owned() })?;
+
+        if items.is_empty() { return Err(YoutubeApiError::EmptyPlaylist.into()); }
+
         let mut video_id_vec = vec![];
         for item in items {
             let video_id = item.id.ok_or(YoutubeApiError::MissingValue { value: "playableitem.id".to_owned() })?;

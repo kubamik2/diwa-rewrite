@@ -125,7 +125,7 @@ async fn assemble_embed(handler: Arc<Mutex<Call>>, page: usize) -> (CreateEmbed,
         let stringified_metadata = track_metadata.video_metadata.to_queue_string(None);
         stringified_metadatas.push(stringified_metadata);
     }
-    let last_page = ((queue_len - 1) as f32 / TRACKS_PER_PAGE as f32).ceil() as usize;
+    let last_page = ((queue_len.max(1) - 1) as f32 / TRACKS_PER_PAGE as f32).ceil() as usize;
     (create_queue_embed(stringified_metadatas, page, last_page, queue_len, looping), last_page)
 }
 

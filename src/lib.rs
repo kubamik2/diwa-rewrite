@@ -12,14 +12,16 @@ use songbird::input::{ Input, restartable::Restart, Restartable };
 use error::Error;
 use convert_query::MediaType;
 use songbird::input::{Metadata as SongbirdMetadata, Codec, Container};
-use tokio::sync::Mutex;
+use tokio::{sync::Mutex, task::AbortHandle};
 use metadata::{ TrackMetadata, UserMetadata, VideoMetadata };
+use std::collections::HashMap;
 
 pub type Context<'a> = poise::Context<'a, Data, error::Error>;
 pub struct Data {
     pub cleanups: Mutex<Vec<Cleanup>>,
     pub spotify_client: api_integration::spotify::SpotifyClient,
-    pub youtube_client: api_integration::youtube::YouTubeClient
+    pub youtube_client: api_integration::youtube::YouTubeClient,
+    pub afk_timeout_abort_handle_map: Mutex<HashMap<u64, AbortHandle>>
 }
 
 #[derive(Clone)]
@@ -51,6 +53,10 @@ pub enum ConvertedQuery {
 }
 
 impl Data {
+    pub fn new(spotify_client: api_integration::spotify::SpotifyClient, youtube_client: api_integration::youtube::YouTubeClient) -> Self {
+        Self { cleanups: Mutex::new(vec![]), spotify_client, youtube_client, afk_timeout_abort_handle_map: Mutex::new(HashMap::new()) }
+    }
+
     pub async fn convert_query(&self, query: &str, added_by: UserMetadata) -> Result<ConvertedQuery, Error> {
         return Ok(match convert_query::extract_media_type(query)? {
             MediaType::YouTubeVideo { video_id } => {

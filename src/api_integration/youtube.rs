@@ -50,7 +50,7 @@ impl YouTubeClient {
 
     pub async fn playlist(&self, id: &str) -> Result<Vec<VideoMetadata>, Error> {
         let items = self.client.playlist_items()
-            .list(&vec![])
+            .list(&vec!["contentDetails".to_owned(), "snippet".to_owned()])
             .playlist_id(id)
             .max_results(50)
             .doit().await?.1.items
@@ -60,7 +60,9 @@ impl YouTubeClient {
 
         let mut video_id_vec = vec![];
         for item in items {
-            let video_id = item.id.ok_or(YoutubeApiError::MissingValue { value: "playableitem.id".to_owned() })?;
+            let video_id = item
+                .content_details.ok_or(YoutubeApiError::MissingValue { value: "item.content_details".to_owned() })?
+                .video_id.ok_or(YoutubeApiError::MissingValue { value: "content_details.video_id".to_owned() })?;
             video_id_vec.push(video_id);
         }
 

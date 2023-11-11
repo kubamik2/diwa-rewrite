@@ -9,9 +9,8 @@ pub async fn pause(ctx: Context<'_>) -> Result<(), Error> {
     if let Some(handler) = manager.get(guild.id) {
         if !same_voice_channel(&guild, &ctx.author().id, handler.clone()).await { return Ok(()); }
         
-        if let Some(current_track_handle) = handler.lock().await.queue().current() {
-            current_track_handle.pause()?;
-        }
+        let Some(current_track_handle) = handler.lock().await.queue().current() else { return Ok(()); };
+        current_track_handle.pause()?;
     }
     Ok(())
 }

@@ -1,5 +1,5 @@
 use std::io::{ Write, Read, Seek, Cursor };
-use std::process::{ Stdio, Command, ChildStdout };
+use std::process::{ Stdio, Command };
 use std::error::Error;
 use symphonia::core::io::MediaSource;
 use thiserror::Error as ThisError;

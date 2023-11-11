@@ -13,7 +13,7 @@ pub async fn play(ctx: Context<'_>, query: Vec<String>) -> Result<(), Error> {
     let query = query.join(" "); // represent query as a string vector so spaces are allowed
     let guild = ctx.guild().unwrap();
     let user_voice = guild.voice_states.get(&ctx.author().id).ok_or(VoiceError::UserNotInVoice)?;
-
+    
     let manager = songbird::get(&ctx.serenity_context()).await.ok_or(VoiceError::ManagerNone)?;
     let handler = manager.get_or_insert(guild.id);
     
@@ -21,7 +21,7 @@ pub async fn play(ctx: Context<'_>, query: Vec<String>) -> Result<(), Error> {
         let _ = send_timed_error(&ctx, "You're in a different voice channel", Some(Duration::from_secs(10))).await;
         return Ok(());
     }
-
+    
     let mut handler_guard = handler.lock().await;
     let bot_current_channel_id = handler_guard.current_connection().and_then(|conn| conn.channel_id);
 
@@ -135,7 +135,7 @@ pub async fn play(ctx: Context<'_>, query: Vec<String>) -> Result<(), Error> {
         ConvertedQuery::PendingPlaylist(pending_metainputs) => {
             let mut converted_tracks = vec![]; // we use a buffer to minimize handler lock time
             let metainputs_len = pending_metainputs.len();
-            
+
             let first_track_handle = match was_empty {
                 true => { // if the queue was empty we immediately generate metadata, enqueue the first track and push the rest to a buffer
                     let mut pending_metainputs_iter = pending_metainputs.into_iter();

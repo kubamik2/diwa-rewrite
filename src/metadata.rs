@@ -180,7 +180,7 @@ impl songbird::events::EventHandler for LazyMetadataEventHandler {
     async fn act(&self, ctx: &songbird::EventContext<'_>) -> Option<songbird::Event> {
         if let EventContext::Track(slice) = ctx {
             if let Some((track_state, _)) = slice.get(0) {
-                if let Some(mut current_track) = self.handler.lock().await.queue().current() {
+                if let Some(mut current_track) = {let handler_guard = self.handler.lock().await; handler_guard.queue().current()} { // have to do this monstrosity to avoid mutex dead locking
                     if track_state.play_time.as_secs() == 0 {
                         if let Ok(track_metadata) = current_track.read_awake_lazy_metadata().await {
                             if let Ok(message) = self.channel_id.send_message(&self.http, |msg| msg.set_embed(create_now_playing_embed(track_metadata))).await {

@@ -1,4 +1,4 @@
-use diwa::error::{Error, AppError};
+use diwa::{error::{Error, AppError}, Data};
 use serenity::prelude::*;
 use songbird::SerenityInit;
 mod commands;
@@ -28,6 +28,7 @@ async fn main() -> Result<(), Error> {
             ],
             prefix_options: poise::PrefixFrameworkOptions { prefix: Some("-".to_owned()), ..Default::default() },
             post_command: |ctx| Box::pin(post_command(ctx)),
+            event_handler: |ctx, event, framework_ctx, data| Box::pin(event_handler(ctx, event, framework_ctx, data)),
             ..Default::default()})
         .token(token)
         .intents(intents)
@@ -35,7 +36,7 @@ async fn main() -> Result<(), Error> {
             Box::pin(async move {
                 println!("{} Has Connected To Discord", ready.user.tag());
                 poise::builtins::register_in_guild(&ctx.http, &framework.options().commands, serenity::model::id::GuildId(883721114604404757)).await?;
-                Ok(diwa::Data { cleanups: tokio::sync::Mutex::new(vec![]), spotify_client, youtube_client })
+                Ok(diwa::Data::new(spotify_client, youtube_client))
             })
         })
         .client_settings(|client_settings| client_settings.register_songbird());
@@ -53,4 +54,60 @@ async fn post_command<'a>(ctx: diwa::Context<'a>) {
         time_slept = cleanup.delay;
         let _ = cleanup.message.delete(&ctx.serenity_context().http).await;
     }
+}
+
+async fn event_handler<'a>(ctx: &serenity::prelude::Context, event: &poise::Event<'a>, framework_ctx: poise::dispatch::FrameworkContext<'a, Data, Error>, data: &Data) -> Result<(), Error> {
+    match event {
+        poise::Event::VoiceStateUpdate { old, new } => {
+            if new.user_id.0 == framework_ctx.bot_id.0 { return Ok(());}
+            if let Some(old) = old {
+                let Some(guild_id) = new.guild_id else { return Ok(());};
+
+                if new.channel_id.is_some() { return Ok(());}
+
+                let Some(manager) = songbird::get(ctx).await else { return Ok(());};
+                let Some(handler) = manager.get(guild_id) else { return Ok(());};
+
+                let Some(channel_id) = old.channel_id else { return Ok(());};
+                let Some(bot_channel_id) = handler.lock().await.current_channel() else { return Ok(());};
+
+                if bot_channel_id.0 == channel_id.0 {
+                    let Ok(channel) = ctx.http.get_channel(bot_channel_id.0).await else { return Ok(());};
+                    if let poise::serenity_prelude::Channel::Guild(guild_channel) = channel {
+                        if guild_channel.kind == poise::serenity_prelude::ChannelType::Voice {
+                            let members_in_voice = guild_channel.members(ctx).await.map(|v| v.iter().filter(|p| !p.user.bot).count()).unwrap_or(0);
+                            if members_in_voice == 0 {
+                                let abort_handle = tokio::task::spawn(async move {
+                                    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                                    manager.remove(guild_id).await;
+                                }).abort_handle();
+
+                                data.afk_timeout_abort_handle_map.lock().await.insert(guild_id.0, abort_handle);
+                            }
+                        }
+                    }
+                }
+            } else {
+                if new.channel_id.is_none() { return Ok(());}
+
+                let Some(guild_id) = new.guild_id else { return Ok(());};
+                
+                let Some(manager) = songbird::get(ctx).await else { return Ok(());};
+                let Some(handler) = manager.get(guild_id) else { return Ok(());};
+
+                let Some(channel_id) = new.channel_id else { return Ok(());};
+                let Some(bot_channel_id) = handler.lock().await.current_channel() else { return Ok(());};
+
+                if bot_channel_id.0 == channel_id.0 {
+                    let mut afk_timeout_abort_handle_map_guard = data.afk_timeout_abort_handle_map.lock().await;
+                    if let Some(abort_handle) = afk_timeout_abort_handle_map_guard.get(&guild_id.0) {
+                        abort_handle.abort();
+                        afk_timeout_abort_handle_map_guard.remove(&guild_id.0);
+                    }
+                }
+            }
+        },
+        _ => ()
+    }
+    Ok(())
 }

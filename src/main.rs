@@ -1,12 +1,13 @@
 use diwa::{error::{Error, AppError}, Data};
+use poise::FrameworkError;
 use serenity::prelude::*;
 use songbird::SerenityInit;
 mod commands;
-static DISCORD_TOKEN_ENV: &str = "DISCORD_TOKEN_TESTS";
+static DISCORD_TOKEN_ENV: &str = "DISCORD_TOKEN";
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    dotenv::dotenv()?;
+    dotenv::dotenv().map_err(|_| AppError::EnvFile)?;
     let youtube_client = diwa::api_integration::youtube::YouTubeClient::new().await?;
     let spotify_client = diwa::api_integration::spotify::SpotifyClient::new()?;
 
@@ -24,17 +25,25 @@ async fn main() -> Result<(), Error> {
                 commands::leave::leave(),
                 commands::pause::pause(),
                 commands::resume::resume(),
-                commands::skip::skip()
+                commands::skip::skip(),
+                commands::jeja::jeja(),
+                commands::_loop::_loop(),
+                commands::stop::stop(),
+                commands::register::register(),
+                commands::help::help()
             ],
             prefix_options: poise::PrefixFrameworkOptions { prefix: Some("-".to_owned()), ..Default::default() },
             post_command: |ctx| Box::pin(post_command(ctx)),
+            //on_error: |err| Box::pin(on_error(err)),
             event_handler: |ctx, event, framework_ctx, data| Box::pin(event_handler(ctx, event, framework_ctx, data)),
             ..Default::default()})
         .token(token)
         .intents(intents)
+        .initialize_owners(true)
         .setup(|ctx, ready, framework| {
             Box::pin(async move {
                 println!("{} Has Connected To Discord", ready.user.tag());
+                
                 poise::builtins::register_in_guild(&ctx.http, &framework.options().commands, serenity::model::id::GuildId(883721114604404757)).await?;
                 Ok(diwa::Data::new(spotify_client, youtube_client))
             })
@@ -55,6 +64,16 @@ async fn post_command<'a>(ctx: diwa::Context<'a>) {
         let _ = cleanup.message.delete(&ctx.serenity_context().http).await;
     }
 }
+
+// async fn on_error<'a>(err: FrameworkError<'a, Data, Error>) {
+//     match err {
+//         FrameworkError::Command { error, ctx } => {
+//             let ve: Box<commands::error::VoiceError> = error.downcast().unwrap();
+//             dbg!(ve);
+//         },
+//         _ => ()
+//     }
+// }
 
 async fn event_handler<'a>(ctx: &serenity::prelude::Context, event: &poise::Event<'a>, framework_ctx: poise::dispatch::FrameworkContext<'a, Data, Error>, data: &Data) -> Result<(), Error> {
     match event {

@@ -7,13 +7,14 @@ use songbird::{ Call, tracks::LoopState };
 use crate::commands::error::VoiceError;
 use futures::stream::*;
 
-static TRACKS_PER_PAGE: usize = 10;
+static TRACKS_PER_PAGE: usize = 7;
+static CHARACTERS_PER_FIELD_LINE: usize = 1024 / TRACKS_PER_PAGE - 3; // -3 to account enumeration formatting and a new line
 
-#[poise::command(slash_command, prefix_command, guild_only, ephemeral)]
+// shows the queue
+#[poise::command(slash_command, prefix_command, guild_only, ephemeral, aliases("q"))]
 pub async fn queue(ctx: Context<'_>, page: Option<usize>) -> Result<(), Error> {
-    // represent the page as an index
     let mut page = page.unwrap_or(1).max(1);
-    page -= 1;
+    page -= 1; // represent the page as an index
 
     let guild = ctx.guild().unwrap();
     let manager = songbird::get(&ctx.serenity_context()).await.ok_or(VoiceError::ManagerNone)?;
@@ -82,6 +83,7 @@ pub fn create_queue_embed(stringified_metadatas: Vec<String>, page: usize, last_
     } else {
         next_up = "*Nothing*".to_owned();
     }
+
     embed.field("Next Up:", next_up, false);
     embed
 }
@@ -111,7 +113,7 @@ async fn assemble_embed(handler: Arc<Mutex<Call>>, page: usize) -> (CreateEmbed,
             },
             Err(_) => None
         };
-        let stringified_metadata = track_metadata.video_metadata.to_queue_string(playtime);
+        let stringified_metadata = track_metadata.video_metadata.to_queue_string(playtime, None);
         stringified_metadatas.push(stringified_metadata);
     }
 
@@ -122,7 +124,9 @@ async fn assemble_embed(handler: Arc<Mutex<Call>>, page: usize) -> (CreateEmbed,
             Some(track_metadata) => track_metadata,
             None => continue
         };
-        let stringified_metadata = track_metadata.video_metadata.to_queue_string(None);
+
+        let max_num_on_page_length = (TRACKS_PER_PAGE + (page * TRACKS_PER_PAGE)) / 100 + 1; // we do this to ensure that the queue_string length limit is correct event with high track enumeration values
+        let stringified_metadata = track_metadata.video_metadata.to_queue_string(None, Some(CHARACTERS_PER_FIELD_LINE - max_num_on_page_length));
         stringified_metadatas.push(stringified_metadata);
     }
     let last_page = ((queue_len.max(1) - 1) as f32 / TRACKS_PER_PAGE as f32).ceil() as usize;

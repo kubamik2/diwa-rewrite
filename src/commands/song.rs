@@ -8,6 +8,7 @@ use songbird::{Call, tracks::LoopState};
 use tokio::sync::Mutex;
 use crate::commands::{ error::VoiceError, utils::same_voice_channel };
 
+// shows the currently playing track
 #[poise::command(slash_command, prefix_command, guild_only, ephemeral)]
 pub async fn song(ctx: Context<'_>) -> Result<(), Error> {
     let guild = ctx.guild().unwrap();
@@ -120,7 +121,8 @@ pub fn create_currently_playing_embed(track_metadata: TrackMetadata, playtime: s
         },
         diwa::AudioSource::YouTube { video_id } => {
             format!("[{}](https://youtu.be/{}) | {} / {}", video_metadata.title, video_id, playtime_string, duration_string)
-        }
+        },
+        diwa::AudioSource::Jeja { .. } => video_metadata.title.clone()
     })
     .author(|author| { author
         .name(added_by.name)

@@ -38,7 +38,7 @@ impl Into<SongbirdMetadata> for VideoMetadata {
     fn into(self) -> SongbirdMetadata {
         let source_url = match self.audio_source {
             AudioSource::YouTube { video_id } => Some(format!("https://youtu.be/{video_id}")),
-            AudioSource::File { path: _ } => None
+            _ => None
         };
         SongbirdMetadata { 
             channels: Some(2),
@@ -52,7 +52,7 @@ impl Into<SongbirdMetadata> for VideoMetadata {
 }
 
 impl VideoMetadata {
-    pub fn to_queue_string(&self, playtime: Option<Duration>) -> String {
+    pub fn to_queue_string(&self, playtime: Option<Duration>, limit: Option<usize>) -> String {
         let mut formatted_duration = format_duration(self.duration, None);
         if let Some(playtime) = playtime {
             let formatted_playtime = format_duration(playtime, Some(formatted_duration.len()));
@@ -60,10 +60,37 @@ impl VideoMetadata {
         }
         match &self.audio_source {
             AudioSource::YouTube { video_id } => {
-                format!("[{}](https://youtu.be/{}) | {}", self.title, video_id, formatted_duration)
+                let mut queue_string = format!("[{}](https://youtu.be/{}) | {}", self.title, video_id, formatted_duration);
+
+                if let Some(limit) = limit {
+                    if queue_string.len() <= limit { return queue_string; }
+                    let mut truncated_title = self.title.clone();
+                    truncated_title.truncate(self.title.len()- (queue_string.len() - limit) - 3);
+                    truncated_title.push_str("...");
+
+                    queue_string = format!("[{}](https://youtu.be/{}) | {}", truncated_title, video_id, formatted_duration);
+                }
+
+                queue_string
             },
             AudioSource::File { path: _ } => {
-                format!("{} | {}", self.title, formatted_duration)
+                let mut queue_string = format!("{} | {}", self.title, formatted_duration);
+
+                if let Some(limit) = limit {
+                    if queue_string.len() <= limit { return queue_string; }
+                    let mut truncated_title = self.title.clone();
+                    truncated_title.truncate(self.title.len()- (queue_string.len() - limit) - 3);
+                    truncated_title.push_str("...");
+                    
+                    queue_string = format!("{} | {}", self.title, formatted_duration);
+                }
+
+                queue_string
+            },
+            AudioSource::Jeja { .. } => {
+                let queue_string = format!("{}", self.title);
+
+                queue_string
             }
         }
     }

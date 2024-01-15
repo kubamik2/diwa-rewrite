@@ -12,5 +12,7 @@ pub enum AppError {
     #[error("\"{value}\" object is missing")]
     MissingValue { value: String },
     #[error("empty playlist")]
-    EmptyPlaylist
+    EmptyPlaylist,
+    #[error("couldn't read the env file")]
+    EnvFile
 }

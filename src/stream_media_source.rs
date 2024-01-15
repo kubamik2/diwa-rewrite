@@ -102,6 +102,7 @@ pub struct PipedStreamReader {
 
 impl PipedStreamReader {
     pub fn new(mut stream: Box<dyn Read + Send>) -> Self {
+        // TODO this probably shouldn't be unbounded
         let (tx, rx) = unbounded_channel();
 
         spawn(move || loop {
@@ -110,10 +111,10 @@ impl PipedStreamReader {
             match bytes_read {
                 Ok(bytes_read) => {
                     if bytes_read == 0 { break; }
-                    tx.send(Ok(PipedStreamData { bytes: buffer, bytes_read }));
+                    let _ = tx.send(Ok(PipedStreamData { bytes: buffer, bytes_read }));
                 },
                 Err(err) => {
-                    tx.send(Err(err));
+                    let _ = tx.send(Err(err));
                 }
             }
         });

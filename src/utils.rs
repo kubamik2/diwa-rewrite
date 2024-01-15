@@ -35,9 +35,12 @@ pub fn create_now_playing_embed(track_metadata: TrackMetadata) -> CreateEmbed {
         AudioSource::YouTube { video_id } => {
             embed.description(format!("[{}](https://youtu.be/{}) | {}", video_metadata.title, video_id, formatted_duration));
         },
-        AudioSource::File { path: _ } => {
+        AudioSource::File { .. } => {
             embed.description(format!("{} | {}", video_metadata.title, formatted_duration));
-        }
+        },
+        AudioSource::Jeja { .. } => {
+            embed.description(video_metadata.title.clone());
+        },
     }
 
     embed.author(|author| {author

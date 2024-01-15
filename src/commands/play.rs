@@ -8,7 +8,8 @@ use crate::commands::{
     error::VoiceError
 };
 
-#[poise::command(slash_command, prefix_command, guild_only)]
+// plays audio from an url or a search query
+#[poise::command(slash_command, prefix_command, guild_only, aliases("p"))]
 pub async fn play(ctx: Context<'_>, query: Vec<String>) -> Result<(), Error> {
     let query = query.join(" "); // represent query as a string vector so spaces are allowed
     let guild = ctx.guild().unwrap();
@@ -49,7 +50,8 @@ pub async fn play(ctx: Context<'_>, query: Vec<String>) -> Result<(), Error> {
             let video_metadata = &track_metadata.video_metadata;
             let description = match &video_metadata.audio_source {
                 diwa::AudioSource::YouTube { video_id } => format!("[{}](https://youtu.be/{}) | {}", video_metadata.title, video_id, format_duration(video_metadata.duration, None)),
-                diwa::AudioSource::File { path: _ } => format!("{} | {}", video_metadata.title, format_duration(video_metadata.duration, None))
+                diwa::AudioSource::File { .. } => format!("{} | {}", video_metadata.title, format_duration(video_metadata.duration, None)),
+                diwa::AudioSource::Jeja { .. } => video_metadata.title.clone()
             };
             match was_empty {
                 true => {

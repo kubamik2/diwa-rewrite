@@ -2,6 +2,7 @@ use diwa::{ Context, error::Error };
 
 use crate::commands::{ error::VoiceError, utils::same_voice_channel };
 
+// pauses playback
 #[poise::command(slash_command, prefix_command, guild_only)]
 pub async fn pause(ctx: Context<'_>) -> Result<(), Error> {
     let guild = ctx.guild().unwrap();

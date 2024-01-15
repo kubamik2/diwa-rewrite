@@ -33,7 +33,8 @@ pub struct Cleanup {
 #[derive(Debug, Clone, Hash)]
 pub enum AudioSource {
     YouTube { video_id: String },
-    File { path: std::path::PathBuf }
+    File { path: std::path::PathBuf },
+    Jeja { guild_id: u64}
 }
 
 pub struct MetaInput {
@@ -146,6 +147,11 @@ impl Restart for LazyQueued {
                     },
                     AudioSource::File { ref path } => {
                         return songbird::ffmpeg(path).await;
+                    },
+                    AudioSource::Jeja { guild_id } => {
+                        scrapers::jeja::tts_download(guild_id).await;
+
+                        return songbird::ffmpeg(format!("{}.mp4", guild_id)).await;
                     }
                 }
             }
@@ -155,7 +161,18 @@ impl Restart for LazyQueued {
     async fn lazy_init(&mut self) -> songbird::input::error::Result<(Option<SongbirdMetadata>, Codec, Container)> {
         Ok(match self {
             LazyQueued::Metadata { metadata } => {
-                (Some(metadata.clone().into()), Codec::FloatPcm, Container::Raw)
+                match metadata.audio_source {
+                    AudioSource::Jeja { .. } => {
+                        (Some(SongbirdMetadata {
+                            channels: Some(1),
+                            sample_rate: Some(24000),
+                            title: Some(metadata.title.clone()),
+                            ..Default::default()
+                        }), Codec::FloatPcm, Container::Raw)
+                    },
+                    _ => (Some(metadata.clone().into()), Codec::FloatPcm, Container::Raw)
+                }
+                
             },
             LazyQueued::Query { query } => {
                 (SongbirdMetadata {

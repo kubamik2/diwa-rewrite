@@ -27,7 +27,9 @@ pub enum ConversionError {
     #[error("id missing in spotify url")]
     UrlSpotifyIdMissing { url: String },
     #[error("invalid content type in spotify url")]
-    UrlSpotifyContentTypeInvalid { url: String }
+    UrlSpotifyContentTypeInvalid { url: String },
+    #[error("episodes are not supported")]
+    EpisodesUnsupported
 }
 
 pub fn extract_media_type(query: &str) -> Result<MediaType, Error> {
@@ -58,6 +60,7 @@ pub fn extract_media_type(query: &str) -> Result<MediaType, Error> {
                         "track" => MediaType::SpotifyTrack { track_id: id },
                         "playlist" => MediaType::SpotifyPlaylist { playlist_id: id },
                         "album" => MediaType::SpotifyAlbum { album_id: id },
+                        "episode" => return Err(ConversionError::EpisodesUnsupported.into()),
                         _ => return Err(ConversionError::UrlSpotifyContentTypeInvalid { url: url.to_string() }.into())
                     });
                 }

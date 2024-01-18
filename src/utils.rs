@@ -1,6 +1,6 @@
 use serenity::builder::CreateEmbed;
 
-use crate::{metadata::TrackMetadata, AudioSource};
+use crate::{metadata::TrackMetadata, metadata::AudioSource};
 
 pub fn format_duration(duration: std::time::Duration, length: Option<usize>) -> String {
     let s = duration.as_secs() % 60;

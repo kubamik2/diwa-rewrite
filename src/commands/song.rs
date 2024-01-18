@@ -1,18 +1,18 @@
 use std::sync::Arc;
 
-use diwa::{Context, error::Error, metadata::{LazyMetadata, TrackMetadata}, utils::format_duration};
+use crate::{data::Context, metadata::{LazyMetadata, TrackMetadata}, utils::format_duration};
 use poise::{CreateReply, serenity_prelude::{ReactionType, MessageComponentInteraction}, ReplyHandle};
 use serenity::builder::{CreateEmbed, CreateActionRow};
 use futures::stream::*;
 use songbird::{Call, tracks::LoopState};
 use tokio::sync::Mutex;
-use crate::commands::{ error::VoiceError, utils::same_voice_channel };
+use crate::commands::{ error::{VoiceError, CommandError}, utils::same_voice_channel };
 
 // shows the currently playing track
 #[poise::command(slash_command, prefix_command, guild_only, ephemeral)]
-pub async fn song(ctx: Context<'_>) -> Result<(), Error> {
+pub async fn song(ctx: Context<'_>) -> Result<(), CommandError> {
     let guild = ctx.guild().unwrap();
-    let manager = songbird::get(&ctx.serenity_context()).await.ok_or(VoiceError::ManagerNone)?;
+    let manager = songbird::get(&ctx.serenity_context()).await.ok_or(VoiceError::NoManager)?;
     if let Some(handler) = manager.get(guild.id) {
         let currently_playing_msg = create_currently_playing_message(handler.clone()).await?;
         let reply_handle = ctx.send(|msg| { msg.clone_from(&currently_playing_msg); msg }).await?;
@@ -57,14 +57,14 @@ pub async fn song(ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
 }
 
-async fn update_currently_playing_message<'a>(message_collector: Arc<MessageComponentInteraction>, ctx: &Context<'a>, handler: Arc<Mutex<Call>>, reply_handle: &ReplyHandle<'a>) -> Result<(), Error> {
+async fn update_currently_playing_message<'a>(message_collector: Arc<MessageComponentInteraction>, ctx: &Context<'a>, handler: Arc<Mutex<Call>>, reply_handle: &ReplyHandle<'a>) -> Result<(), CommandError> {
     let edit = create_currently_playing_message(handler).await?;
     reply_handle.edit(ctx.clone(), |msg| { msg.clone_from(&edit); msg}).await?;
     let _ = message_collector.defer(ctx).await;
     Ok(())
 }
 
-async fn create_currently_playing_message<'a>(handler: Arc<Mutex<Call>>) -> Result<CreateReply<'a>, Error> {
+async fn create_currently_playing_message<'a>(handler: Arc<Mutex<Call>>) -> Result<CreateReply<'a>, CommandError> {
     let mut currently_playing_msg = CreateReply::default();
     currently_playing_msg.reply(true).allowed_mentions(|mentions| mentions.replied_user(true));
     let current_track_handle = handler.lock().await.queue().current(); // mutex dropped immediately
@@ -116,13 +116,13 @@ pub fn create_currently_playing_embed(track_metadata: TrackMetadata, playtime: s
     embed
     .title("Currently Playing:")
     .description( match video_metadata.audio_source {
-        diwa::AudioSource::File { path: _ } => {
+        crate::metadata::AudioSource::File { path: _ } => {
             format!("{} | {} / {}", video_metadata.title, playtime_string, duration_string)
         },
-        diwa::AudioSource::YouTube { video_id } => {
+        crate::metadata::AudioSource::YouTube { video_id } => {
             format!("[{}](https://youtu.be/{}) | {} / {}", video_metadata.title, video_id, playtime_string, duration_string)
         },
-        diwa::AudioSource::Jeja { .. } => video_metadata.title.clone()
+        crate::metadata::AudioSource::Jeja { .. } => video_metadata.title.clone()
     })
     .author(|author| { author
         .name(added_by.name)

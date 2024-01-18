@@ -1,18 +1,22 @@
 use reqwest::{Client, Url, Method};
 use nom::{ IResult, bytes::complete::{tag, take_until}, combinator::into, sequence::preceded};
-use crate::{error::Error, AudioSource};
+use crate::metadata::AudioSource;
 use thiserror::Error as ThisError;
 
 #[derive(Debug, ThisError)]
 pub enum YoutubeScrapeError {
-    #[error("could not parse the video duration string")]
+    #[error("")]
     DurationString { duration_string: String },
-    #[error("could not parse the video duration string from page")]
+    #[error("")]
     DurationPage,
-    #[error("could not parse the video id from page")]
+    #[error("")]
     VideoId,
-    #[error("could not parse the video title from page")]
-    Title
+    #[error("")]
+    Title, 
+    #[error("")]
+    Request(#[from] reqwest::Error),
+    #[error("")]
+    Url(#[from] url::ParseError),
 }
 
 fn parse_title(input: &str) -> IResult<&str, String> {
@@ -43,7 +47,7 @@ fn string_to_duration(input: &str) -> Result<std::time::Duration, YoutubeScrapeE
     Ok(std::time::Duration::from_secs(seconds))
 }
 
-pub async fn search(query: &str) -> Result<crate::VideoMetadata, Error> {
+pub async fn search(query: &str) -> Result<crate::metadata::VideoMetadata, YoutubeScrapeError> {
     let client = Client::new();
     let url = Url::parse("https://www.youtube.com/results")?;
     let request = client.request(Method::GET, url).query(&[("search_query", query)]).build()?;
@@ -52,11 +56,11 @@ pub async fn search(query: &str) -> Result<crate::VideoMetadata, Error> {
     let (rest, video_id) = parse_video_id(&doc).map_err(|_| YoutubeScrapeError::VideoId)?;
     doc = rest.to_owned();
     let (rest, title) = parse_title(&doc).map_err(|_| YoutubeScrapeError::Title)?;
-    let title = serde_json::from_str(&format!("\"{title}\""))?;
+    let title = serde_json::from_str(&format!("\"{title}\"")).unwrap_or("ERROR".to_string());
     doc = rest.to_owned();
     let (_, duration_string) = parse_duration_string(&doc).map_err(|_| YoutubeScrapeError::DurationPage)?;
     let duration = string_to_duration(duration_string)?;
     let audio_source = AudioSource::YouTube { video_id };
 
-    Ok(crate::VideoMetadata { title, duration, audio_source })
+    Ok(crate::metadata::VideoMetadata { title, duration, audio_source })
 }

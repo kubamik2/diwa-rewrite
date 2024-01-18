@@ -1,23 +1,23 @@
-use diwa::{ Context, error::Error, metadata::LazyMetadata };
-use poise::{serenity_prelude::{ ReactionType, MessageComponentInteraction }, ReplyHandle};
+use crate::{data::Context, metadata::LazyMetadata};
+use poise::{serenity_prelude::{ReactionType, MessageComponentInteraction}, ReplyHandle};
 use serenity::{ builder::{ CreateEmbed, CreateActionRow }, utils::Color };
 use std::{ sync::Arc, time::Duration };
 use tokio::sync::Mutex;
 use songbird::{ Call, tracks::LoopState };
-use crate::commands::error::VoiceError;
+use crate::commands::error::{VoiceError, CommandError};
 use futures::stream::*;
 
-static TRACKS_PER_PAGE: usize = 7;
-static CHARACTERS_PER_FIELD_LINE: usize = 1024 / TRACKS_PER_PAGE - 3; // -3 to account enumeration formatting and a new line
+const TRACKS_PER_PAGE: usize = 7;
+const CHARACTERS_PER_FIELD_LINE: usize = 1024 / TRACKS_PER_PAGE - 3; // -3 to account enumeration formatting and a new line
 
 // shows the queue
 #[poise::command(slash_command, prefix_command, guild_only, ephemeral, aliases("q"))]
-pub async fn queue(ctx: Context<'_>, page: Option<usize>) -> Result<(), Error> {
+pub async fn queue(ctx: Context<'_>, page: Option<usize>) -> Result<(), CommandError> {
     let mut page = page.unwrap_or(1).max(1);
     page -= 1; // represent the page as an index
 
     let guild = ctx.guild().unwrap();
-    let manager = songbird::get(&ctx.serenity_context()).await.ok_or(VoiceError::ManagerNone)?;
+    let manager = songbird::get(&ctx.serenity_context()).await.ok_or(VoiceError::NoManager)?;
 
     if let Some(handler) = manager.get(guild.id) {
         let (queue_embed, mut last_page) = assemble_embed(handler.clone(), page).await;
@@ -141,7 +141,7 @@ pub fn create_buttons(page: usize, last_page: usize) -> CreateActionRow {
     components
 }
 
-pub async fn update_queue_embed<'a>(page: usize, last_page: &mut usize, ctx: Context<'a>, handler: Arc<Mutex<Call>>, reply_handle: &ReplyHandle<'a>, message_collector: Arc<MessageComponentInteraction>) -> Result<(), Error> {
+pub async fn update_queue_embed<'a>(page: usize, last_page: &mut usize, ctx: Context<'a>, handler: Arc<Mutex<Call>>, reply_handle: &ReplyHandle<'a>, message_collector: Arc<MessageComponentInteraction>) -> Result<(), CommandError> {
     let (new_queue_embed, new_last_page) = assemble_embed(handler, page).await;
     *last_page = new_last_page;
     let _ = reply_handle.edit(ctx.clone(), |msg| msg

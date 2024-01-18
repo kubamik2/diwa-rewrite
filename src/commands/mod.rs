@@ -11,4 +11,4 @@ pub mod stop;
 pub mod register;
 pub mod help;
 pub mod error;
-mod utils;
+pub mod utils;

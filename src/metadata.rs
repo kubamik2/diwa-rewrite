@@ -1,10 +1,6 @@
 use std::{time::Duration, sync::Arc};
 
-use crate::{
-    error::{ Error, AppError },
-    utils::{format_duration, create_now_playing_embed},
-    AudioSource
-};
+use crate::utils::{format_duration, create_now_playing_embed};
 use serenity::http::Http;
 use songbird::{
     input::Metadata as SongbirdMetadata,
@@ -12,6 +8,8 @@ use songbird::{
 };
 use poise::{ async_trait, serenity_prelude::{User, ChannelId} };
 use tokio::sync::Mutex;
+use thiserror::Error as ThisError;
+
 #[derive(Debug, Clone, Hash)]
 pub struct TrackMetadata {
     pub video_metadata: VideoMetadata,
@@ -137,12 +135,22 @@ impl TypeMapKey for UserMetadata {
 pub trait LazyMetadata {
     async fn read_lazy_metadata(&self) -> Option<TrackMetadata>;
     async fn write_lazy_metadata(&mut self, metadata: TrackMetadata);
-    async fn generate_lazy_metadata(&mut self) -> Result<TrackMetadata, Error>;
-    async fn read_awake_lazy_metadata(&mut self) -> Result<TrackMetadata, Error>;
-    async fn awake_lazy_metadata(&mut self) -> Result<(), Error>;
+    async fn generate_lazy_metadata(&mut self) -> Result<TrackMetadata, MetadataError>;
+    async fn read_awake_lazy_metadata(&mut self) -> Result<TrackMetadata, MetadataError>;
+    async fn awake_lazy_metadata(&mut self) -> Result<(), MetadataError>;
     async fn read_added_by(&self) -> Option<UserMetadata>;
     async fn write_added_by(&mut self, user_metadata: UserMetadata);
     fn is_lazy(&self) -> bool;
+}
+
+#[derive(Debug, ThisError)]
+pub enum MetadataError {
+    #[error("")]
+    MissingTitle,
+    #[error("")]
+    MissingAddedBy,
+    #[error("")]
+    YoutubeScrape(#[from] crate::scrapers::youtube::YoutubeScrapeError)
 }
 
 #[async_trait]
@@ -155,14 +163,14 @@ impl LazyMetadata for TrackHandle {
         self.typemap().write().await.insert::<TrackMetadata>(metadata)
     }
 
-    async fn generate_lazy_metadata(&mut self) -> Result<TrackMetadata, Error> {
-        let title = self.metadata().title.as_ref().ok_or(AppError::MissingValue { value: "metadata.title".to_owned() })?;
-        let added_by = self.read_added_by().await.ok_or(AppError::MissingValue { value: "added_by".to_owned() })?;
+    async fn generate_lazy_metadata(&mut self) -> Result<TrackMetadata, MetadataError> {
+        let title = self.metadata().title.as_ref().ok_or(MetadataError::MissingTitle)?;
+        let added_by = self.read_added_by().await.ok_or(MetadataError::MissingAddedBy)?;
         let video_metadata = crate::scrapers::youtube::search(title).await?;
         Ok(TrackMetadata { video_metadata, added_by })
     }
 
-    async fn read_awake_lazy_metadata(&mut self) -> Result<TrackMetadata, Error> {
+    async fn read_awake_lazy_metadata(&mut self) -> Result<TrackMetadata, MetadataError> {
         match self.read_lazy_metadata().await {
             Some(metadata) => Ok(metadata),
             None => {
@@ -173,7 +181,7 @@ impl LazyMetadata for TrackHandle {
         }
     }
 
-    async fn awake_lazy_metadata(&mut self) -> Result<(), Error> {
+    async fn awake_lazy_metadata(&mut self) -> Result<(), MetadataError> {
         if self.is_lazy() {
             if self.read_lazy_metadata().await.is_none() {
                 let metadata = self.generate_lazy_metadata().await?;
@@ -221,4 +229,11 @@ impl songbird::events::EventHandler for LazyMetadataEventHandler {
         }
         None
     }
+}
+
+#[derive(Debug, Clone, Hash)]
+pub enum AudioSource {
+    YouTube { video_id: String },
+    File { path: std::path::PathBuf },
+    Jeja { guild_id: u64}
 }

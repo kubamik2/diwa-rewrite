@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use diwa::{ Context, error::Error, metadata::{LazyMetadataEventHandler, LazyMetadata, TrackMetadata, VideoMetadata, UserMetadata}, utils::format_duration, LazyQueued };
+use crate::{data::Context, metadata::{LazyMetadataEventHandler, LazyMetadata, TrackMetadata, VideoMetadata, UserMetadata}, utils::format_duration, lazy_queued::LazyQueued, commands::error::CommandError};
 use serenity::utils::Color;
 use songbird::{create_player, input::{Restartable, Input}};
 
@@ -8,11 +8,11 @@ use crate::commands::{ error::VoiceError, utils::{same_voice_channel, send_timed
 
 // tells a joke from jeja.pl
 #[poise::command(slash_command, prefix_command, guild_only)]
-pub async fn jeja(ctx: Context<'_>) -> Result<(), Error> {
+pub async fn jeja(ctx: Context<'_>) -> Result<(), CommandError> {
     let guild = ctx.guild().unwrap();
-    let user_voice = guild.voice_states.get(&ctx.author().id).ok_or(VoiceError::UserNotInVoice)?;
+    let user_voice = guild.voice_states.get(&ctx.author().id).ok_or(VoiceError::NotConnected)?;
 
-    let manager = songbird::get(&ctx.serenity_context()).await.ok_or(VoiceError::ManagerNone)?;
+    let manager = songbird::get(&ctx.serenity_context()).await.ok_or(VoiceError::NoManager)?;
     let handler = manager.get_or_insert(guild.id);
 
     if !same_voice_channel(&guild, &ctx.author().id, handler.clone()).await {
@@ -37,7 +37,7 @@ pub async fn jeja(ctx: Context<'_>) -> Result<(), Error> {
         video_metadata: VideoMetadata {
             title: "Dowcip".to_string(),
             duration: Duration::from_secs(20),
-            audio_source: diwa::AudioSource::Jeja { guild_id: guild.id.0 }
+            audio_source: crate::metadata::AudioSource::Jeja { guild_id: guild.id.0 }
         },
         added_by: UserMetadata {
             name: ctx.author().name.clone(),
@@ -54,7 +54,7 @@ pub async fn jeja(ctx: Context<'_>) -> Result<(), Error> {
 
     match was_empty {
         true => {
-            let now_playing_embed = diwa::utils::create_now_playing_embed(track_metadata);
+            let now_playing_embed = crate::utils::create_now_playing_embed(track_metadata);
             let reply_handle = ctx.send(|msg| msg
                 .embed(|embed| {embed.clone_from(&now_playing_embed); embed})).await?;
             ctx.data().add_to_cleanup(reply_handle, std::time::Duration::from_secs(10)).await;

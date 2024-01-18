@@ -4,7 +4,7 @@ use std::error::Error;
 use symphonia::core::io::MediaSource;
 use thiserror::Error as ThisError;
 
-static FFMPEG_ARGS: [&'static str; 9] = [
+const FFMPEG_ARGS: [&'static str; 9] = [
             "-f",
             "s16le",
             "-ac",
@@ -25,7 +25,7 @@ pub struct StreamMediaSource {
 
 #[derive(ThisError, Debug, Clone, PartialEq, Eq)]
 pub enum StreamError {
-    #[error("Video formats vector is empty or no audio quality was recognized")]
+    #[error("")]
     NoVideoFormats
 }
 

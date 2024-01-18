@@ -1,22 +1,34 @@
-use diwa::{error::{Error, AppError}, Data};
+pub mod error;
+pub mod api_integration;
+pub mod scrapers;
+pub mod convert_query;
+pub mod metadata;
+pub mod utils;
+pub mod lazy_queued;
+pub mod data;
+mod stream_media_source;
+
+use commands::error::CommandError;
+use error::{DynError, AppError};
+use data::{Data, Context};
 use poise::FrameworkError;
 use serenity::prelude::*;
 use songbird::SerenityInit;
 mod commands;
-static DISCORD_TOKEN_ENV: &str = "DISCORD_TOKEN";
+const DISCORD_TOKEN_ENV: &str = "DISCORD_TOKEN_TESTS";
 
 #[tokio::main]
-async fn main() -> Result<(), Error> {
+async fn main() -> Result<(), DynError> {
     dotenv::dotenv().map_err(|_| AppError::EnvFile)?;
-    let youtube_client = diwa::api_integration::youtube::YouTubeClient::new().await?;
-    let spotify_client = diwa::api_integration::spotify::SpotifyClient::new()?;
+    let youtube_client = api_integration::youtube::YouTubeClient::new().await?;
+    let spotify_client = api_integration::spotify::SpotifyClient::new()?;
 
-    let token = std::env::var(DISCORD_TOKEN_ENV).map_err(|_| AppError::MissingEnvEntry { entry: DISCORD_TOKEN_ENV.to_owned() })?;
+    let token = std::env::var(DISCORD_TOKEN_ENV).map_err(|_| AppError::EnvVarsMissing { var: vec![DISCORD_TOKEN_ENV.to_string()] })?;
     let intents = GatewayIntents::GUILD_MESSAGES | GatewayIntents::MESSAGE_CONTENT
                                 | GatewayIntents::GUILD_VOICE_STATES | GatewayIntents::GUILD_MEMBERS
                                 | GatewayIntents::DIRECT_MESSAGES | GatewayIntents::GUILD_PRESENCES
                                 | GatewayIntents::GUILDS;
-    let framework: poise::FrameworkBuilder<diwa::Data, Error> = poise::Framework::builder()
+    let framework: poise::FrameworkBuilder<Data, CommandError> = poise::Framework::builder()
         .options(poise::FrameworkOptions { 
             commands: vec![
                 commands::play::play(),
@@ -34,7 +46,7 @@ async fn main() -> Result<(), Error> {
             ],
             prefix_options: poise::PrefixFrameworkOptions { prefix: Some("-".to_owned()), ..Default::default() },
             post_command: |ctx| Box::pin(post_command(ctx)),
-            //on_error: |err| Box::pin(on_error(err)),
+            on_error: |err| Box::pin(on_error(err)),
             event_handler: |ctx, event, framework_ctx, data| Box::pin(event_handler(ctx, event, framework_ctx, data)),
             ..Default::default()})
         .token(token)
@@ -45,7 +57,7 @@ async fn main() -> Result<(), Error> {
                 println!("{} Has Connected To Discord", ready.user.tag());
                 
                 poise::builtins::register_in_guild(&ctx.http, &framework.options().commands, serenity::model::id::GuildId(883721114604404757)).await?;
-                Ok(diwa::Data::new(spotify_client, youtube_client))
+                Ok(Data::new(spotify_client, youtube_client))
             })
         })
         .client_settings(|client_settings| client_settings.register_songbird());
@@ -54,7 +66,7 @@ async fn main() -> Result<(), Error> {
     Ok(())
 }
 
-async fn post_command<'a>(ctx: diwa::Context<'a>) {
+async fn post_command<'a>(ctx: Context<'a>) {
     let mut cleanups = ctx.data().cleanups.lock().await.clone();
     cleanups.sort_by(|a, b| b.delay.cmp(&a.delay));
     let mut time_slept = std::time::Duration::ZERO;
@@ -65,17 +77,21 @@ async fn post_command<'a>(ctx: diwa::Context<'a>) {
     }
 }
 
-// async fn on_error<'a>(err: FrameworkError<'a, Data, Error>) {
-//     match err {
-//         FrameworkError::Command { error, ctx } => {
-//             let ve: Box<commands::error::VoiceError> = error.downcast().unwrap();
-//             dbg!(ve);
-//         },
-//         _ => ()
-//     }
-// }
+async fn on_error<'a>(err: FrameworkError<'a, Data, CommandError>) {
+    match err {
+        FrameworkError::Command { error, ctx } => {
+            let message = error.to_string();
+            if message.is_empty() {
+                let _ = commands::utils::send_timed_error(&ctx, "An error has occured, try again", Some(std::time::Duration::from_secs(10))).await;
+            } else {
+                let _ = commands::utils::send_timed_error(&ctx, message, Some(std::time::Duration::from_secs(10))).await;
+            }
+        },
+        _ => ()
+    }
+}
 
-async fn event_handler<'a>(ctx: &serenity::prelude::Context, event: &poise::Event<'a>, framework_ctx: poise::dispatch::FrameworkContext<'a, Data, Error>, data: &Data) -> Result<(), Error> {
+async fn event_handler<'a>(ctx: &serenity::prelude::Context, event: &poise::Event<'a>, framework_ctx: poise::dispatch::FrameworkContext<'a, Data, CommandError>, data: &Data) -> Result<(), CommandError> {
     match event {
         poise::Event::VoiceStateUpdate { old, new } => {
             if new.user_id.0 == framework_ctx.bot_id.0 { return Ok(());}
@@ -97,8 +113,8 @@ async fn event_handler<'a>(ctx: &serenity::prelude::Context, event: &poise::Even
                             let members_in_voice = guild_channel.members(ctx).await.map(|v| v.iter().filter(|p| !p.user.bot).count()).unwrap_or(0);
                             if members_in_voice == 0 {
                                 let abort_handle = tokio::task::spawn(async move {
-                                    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
-                                    manager.remove(guild_id).await;
+                                    tokio::time::sleep(std::time::Duration::from_secs(120)).await;
+                                    let _ = manager.remove(guild_id).await;
                                 }).abort_handle();
 
                                 data.afk_timeout_abort_handle_map.lock().await.insert(guild_id.0, abort_handle);

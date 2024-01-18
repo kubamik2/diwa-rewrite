@@ -1,12 +1,13 @@
-use std::sync::Arc;
+#![allow(dead_code)]
 
-use diwa::{Context, error::Error};
+use std::sync::Arc;
+use crate::{data::Context, error::DynError};
 use poise::serenity_prelude::{Guild, UserId};
 use serenity::utils::Color;
 use songbird::Call;
 use tokio::sync::Mutex;
 
-pub async fn send_timed_reply<S: ToString>(ctx: &Context<'_>, description: S, delay: Option<std::time::Duration>) -> Result<(), Error> {
+pub async fn send_timed_reply<S: ToString>(ctx: &Context<'_>, description: S, delay: Option<std::time::Duration>) -> Result<(), DynError> {
     let reply_handle = ctx.send(|msg| msg
         .ephemeral(true)
         .reply(true)
@@ -19,7 +20,7 @@ pub async fn send_timed_reply<S: ToString>(ctx: &Context<'_>, description: S, de
     Ok(())
 }
 
-pub async fn send_timed_error<S: ToString>(ctx: &Context<'_>, description: S, delay: Option<std::time::Duration>) -> Result<(), Error> {
+pub async fn send_timed_error<S: ToString>(ctx: &Context<'_>, description: S, delay: Option<std::time::Duration>) -> Result<(), DynError> {
     let reply_handle = ctx.send(|msg| msg
         .ephemeral(true)
         .reply(true)

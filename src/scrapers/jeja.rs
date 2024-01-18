@@ -1,9 +1,9 @@
 use nom::{IResult, sequence::preceded, bytes::complete::take_until};
 use thiserror::Error as ThisError;
 
-use crate::error::Error;
+use crate::error::DynError;
 
-pub async fn scrape_joke() -> Result<String, Error> {
+pub async fn scrape_joke() -> Result<String, DynError> {
     let client = reqwest::Client::new();
     let mut text = String::new();
 
@@ -11,7 +11,7 @@ pub async fn scrape_joke() -> Result<String, Error> {
     let response = client.execute(request).await?;
 
     let html_text = response.text().await?;
-    let html_fragment = parse_html(&html_text).map_err(|_| TTSError::ParseError)?.1.to_string();
+    let html_fragment = parse_html(&html_text).map_err(|_| TTSError::Parse)?.1.to_string();
 
     let doc = scraper::Html::parse_fragment(&html_fragment);
 
@@ -41,26 +41,27 @@ fn parse_html(input: &str) -> IResult<&str, &str> {
 
 #[derive(ThisError, Debug, Clone, PartialEq, Eq)]
 pub enum TTSError {
-    #[error("Error while parsing page")]
-    ParseError,
-    #[error("Error while saving tts file: {message}")]
-    SaveError { message: String }
+    #[error("")]
+    Parse,
+    #[error("")]
+    Save { message: String }
 }
 
-pub async fn tts_download(guild_id: u64) -> Result<(), Error> {
+const TRIES: usize = 5;
+pub async fn tts_download(guild_id: u64) -> Result<(), DynError> {
     let mut text = String::new();
-    let mut tries = 5;
-    loop {
+
+    for i in 0..TRIES {
         match scrape_joke().await {
             Ok(joke) => {
                 if joke.len() <= 100 && joke.len() > 0 { text = joke; break;}
             },
             Err(err) => {
-                tries -= 1;
-                if tries == 0 { return Err(err);}
+                if i + 1 == TRIES { return Err(err);}
             }
         }
     }
+
     let client = tts_rust::tts::GTTSClient::new(1.0, tts_rust::languages::Languages::Polish, "com");
-    client.save_to_file(&text, &format!("{}.mp4", guild_id)).map_err(|message| TTSError::SaveError { message }.into())
+    client.save_to_file(&text, &format!("{}.mp4", guild_id)).map_err(|message| TTSError::Save { message }.into())
 }

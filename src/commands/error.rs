@@ -17,11 +17,9 @@ pub enum CommandError {
     #[error("{0}")]
     Voice(#[from] VoiceError),
     #[error("")]
-    Input(#[from] songbird::input::error::Error),
-    #[error("")]
     Serenity(#[from] serenity::Error),
     #[error("")]
-    Track(#[from] songbird::error::TrackError),
+    Track(#[from] songbird::tracks::ControlError),
     #[error("{0}")]
     Conversion(#[from] crate::convert_query::ConversionError),
     #[error("")]

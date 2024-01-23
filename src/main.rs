@@ -4,9 +4,7 @@ pub mod scrapers;
 pub mod convert_query;
 pub mod metadata;
 pub mod utils;
-pub mod lazy_queued;
 pub mod data;
-mod stream_media_source;
 
 use commands::error::CommandError;
 use error::{DynError, AppError};
@@ -28,7 +26,7 @@ async fn main() -> Result<(), DynError> {
                                 | GatewayIntents::GUILD_VOICE_STATES | GatewayIntents::GUILD_MEMBERS
                                 | GatewayIntents::DIRECT_MESSAGES | GatewayIntents::GUILD_PRESENCES
                                 | GatewayIntents::GUILDS;
-    let framework: poise::FrameworkBuilder<Data, CommandError> = poise::Framework::builder()
+    let framework: poise::Framework<Data, CommandError> = poise::Framework::builder()
         .options(poise::FrameworkOptions { 
             commands: vec![
                 commands::play::play(),
@@ -49,20 +47,17 @@ async fn main() -> Result<(), DynError> {
             on_error: |err| Box::pin(on_error(err)),
             event_handler: |ctx, event, framework_ctx, data| Box::pin(event_handler(ctx, event, framework_ctx, data)),
             ..Default::default()})
-        .token(token)
-        .intents(intents)
         .initialize_owners(true)
-        .setup(|ctx, ready, framework| {
+        .setup(|_, ready, _| {
             Box::pin(async move {
                 println!("{} Has Connected To Discord", ready.user.tag());
-                
-                poise::builtins::register_in_guild(&ctx.http, &framework.options().commands, serenity::model::id::GuildId(883721114604404757)).await?;
                 Ok(Data::new(spotify_client, youtube_client))
             })
         })
-        .client_settings(|client_settings| client_settings.register_songbird());
-    
-    framework.run().await.unwrap();
+        .build();
+
+    let mut client = poise::serenity_prelude::ClientBuilder::new(token, intents).register_songbird().framework(framework).await?;
+    client.start().await?;
     Ok(())
 }
 
@@ -79,7 +74,7 @@ async fn post_command<'a>(ctx: Context<'a>) {
 
 async fn on_error<'a>(err: FrameworkError<'a, Data, CommandError>) {
     match err {
-        FrameworkError::Command { error, ctx } => {
+        FrameworkError::Command { error, ctx, .. } => {
             let message = error.to_string();
             if message.is_empty() {
                 let _ = commands::utils::send_timed_error(&ctx, "An error has occured, try again", Some(std::time::Duration::from_secs(10))).await;
@@ -91,10 +86,10 @@ async fn on_error<'a>(err: FrameworkError<'a, Data, CommandError>) {
     }
 }
 
-async fn event_handler<'a>(ctx: &serenity::prelude::Context, event: &poise::Event<'a>, framework_ctx: poise::dispatch::FrameworkContext<'a, Data, CommandError>, data: &Data) -> Result<(), CommandError> {
+async fn event_handler<'a>(ctx: &serenity::prelude::Context, event: &poise::serenity_prelude::FullEvent, framework_ctx: poise::dispatch::FrameworkContext<'a, Data, CommandError>, data: &Data) -> Result<(), CommandError> {
     match event {
-        poise::Event::VoiceStateUpdate { old, new } => {
-            if new.user_id.0 == framework_ctx.bot_id.0 { return Ok(());}
+        poise::serenity_prelude::FullEvent::VoiceStateUpdate { old, new } => {
+            if new.user_id == framework_ctx.bot_id { return Ok(());}
             if let Some(old) = old {
                 let Some(guild_id) = new.guild_id else { return Ok(());};
 
@@ -106,18 +101,18 @@ async fn event_handler<'a>(ctx: &serenity::prelude::Context, event: &poise::Even
                 let Some(channel_id) = old.channel_id else { return Ok(());};
                 let Some(bot_channel_id) = handler.lock().await.current_channel() else { return Ok(());};
 
-                if bot_channel_id.0 == channel_id.0 {
-                    let Ok(channel) = ctx.http.get_channel(bot_channel_id.0).await else { return Ok(());};
+                if bot_channel_id.0.get()== channel_id.get() {
+                    let Ok(channel) = ctx.http.get_channel(serenity::all::ChannelId::new(bot_channel_id.0.into())).await else { return Ok(());};
                     if let poise::serenity_prelude::Channel::Guild(guild_channel) = channel {
                         if guild_channel.kind == poise::serenity_prelude::ChannelType::Voice {
-                            let members_in_voice = guild_channel.members(ctx).await.map(|v| v.iter().filter(|p| !p.user.bot).count()).unwrap_or(0);
+                            let members_in_voice = guild_channel.members(ctx).map(|v| v.iter().filter(|p| !p.user.bot).count()).unwrap_or(0);
                             if members_in_voice == 0 {
                                 let abort_handle = tokio::task::spawn(async move {
                                     tokio::time::sleep(std::time::Duration::from_secs(120)).await;
                                     let _ = manager.remove(guild_id).await;
                                 }).abort_handle();
 
-                                data.afk_timeout_abort_handle_map.lock().await.insert(guild_id.0, abort_handle);
+                                data.afk_timeout_abort_handle_map.lock().await.insert(guild_id.get(), abort_handle);
                             }
                         }
                     }
@@ -133,11 +128,11 @@ async fn event_handler<'a>(ctx: &serenity::prelude::Context, event: &poise::Even
                 let Some(channel_id) = new.channel_id else { return Ok(());};
                 let Some(bot_channel_id) = handler.lock().await.current_channel() else { return Ok(());};
 
-                if bot_channel_id.0 == channel_id.0 {
+                if bot_channel_id.0.get() == channel_id.get() {
                     let mut afk_timeout_abort_handle_map_guard = data.afk_timeout_abort_handle_map.lock().await;
-                    if let Some(abort_handle) = afk_timeout_abort_handle_map_guard.get(&guild_id.0) {
+                    if let Some(abort_handle) = afk_timeout_abort_handle_map_guard.get(&guild_id.get()) {
                         abort_handle.abort();
-                        afk_timeout_abort_handle_map_guard.remove(&guild_id.0);
+                        afk_timeout_abort_handle_map_guard.remove(&guild_id.get());
                     }
                 }
             }

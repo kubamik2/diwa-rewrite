@@ -1,10 +1,7 @@
 use nom::{IResult, sequence::preceded, bytes::complete::take_until};
 use thiserror::Error as ThisError;
 
-use crate::error::DynError;
-
-pub async fn scrape_joke() -> Result<String, DynError> {
-    let client = reqwest::Client::new();
+pub async fn scrape_joke(client: reqwest::Client) -> Result<String, TTSError> {
     let mut text = String::new();
 
     let request = client.get("https://dowcipy.jeja.pl/losowe").build()?;
@@ -39,20 +36,24 @@ fn parse_html(input: &str) -> IResult<&str, &str> {
     )(input)
 }
 
-#[derive(ThisError, Debug, Clone, PartialEq, Eq)]
+#[derive(ThisError, Debug)]
 pub enum TTSError {
     #[error("")]
     Parse,
     #[error("")]
-    Save { message: String }
+    Save { message: String },
+    #[error("")]
+    JokeEmpty,
+    #[error("")]
+    Scrape(#[from] reqwest::Error)
 }
 
-const TRIES: usize = 5;
-pub async fn tts_download(guild_id: u64) -> Result<(), DynError> {
+const TRIES: usize = 50;
+pub async fn tts_download(filename: &str, client: reqwest::Client) -> Result<(), TTSError> {
     let mut text = String::new();
 
     for i in 0..TRIES {
-        match scrape_joke().await {
+        match scrape_joke(client.clone()).await {
             Ok(joke) => {
                 if joke.len() <= 100 && joke.len() > 0 { text = joke; break;}
             },
@@ -61,7 +62,7 @@ pub async fn tts_download(guild_id: u64) -> Result<(), DynError> {
             }
         }
     }
-
-    let client = tts_rust::tts::GTTSClient::new(1.0, tts_rust::languages::Languages::Polish, "com");
-    client.save_to_file(&text, &format!("{}.mp4", guild_id)).map_err(|message| TTSError::Save { message }.into())
+    if text.is_empty() { return Err(TTSError::JokeEmpty.into()) }
+    let gtts_client = tts_rust::tts::GTTSClient::new(1.0, tts_rust::languages::Languages::Polish, "com");
+    gtts_client.save_to_file(&text, filename).map_err(|message| TTSError::Save { message }.into())
 }

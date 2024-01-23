@@ -1,11 +1,8 @@
 use std::{time::Duration, sync::Arc};
 
 use crate::utils::{format_duration, create_now_playing_embed};
-use serenity::http::Http;
-use songbird::{
-    input::Metadata as SongbirdMetadata,
-    typemap::TypeMapKey, tracks::TrackHandle, Call, EventContext
-};
+use serenity::{http::Http, builder::CreateMessage};
+use songbird::{typemap::TypeMapKey, tracks::TrackHandle, Call, EventContext};
 use poise::{ async_trait, serenity_prelude::{User, ChannelId} };
 use tokio::sync::Mutex;
 use thiserror::Error as ThisError;
@@ -32,22 +29,22 @@ pub struct VideoMetadata {
     pub audio_source: AudioSource
 }
 
-impl Into<SongbirdMetadata> for VideoMetadata {
-    fn into(self) -> SongbirdMetadata {
-        let source_url = match self.audio_source {
-            AudioSource::YouTube { video_id } => Some(format!("https://youtu.be/{video_id}")),
-            _ => None
-        };
-        SongbirdMetadata { 
-            channels: Some(2),
-            sample_rate: Some(48000),
-            title: Some(self.title),
-            duration: Some(self.duration),
-            source_url,
-            ..Default::default()
-        }
-    }
-}
+// impl Into<SongbirdMetadata> for VideoMetadata {
+//     fn into(self) -> SongbirdMetadata {
+//         let source_url = match self.audio_source {
+//             AudioSource::YouTube { video_id } => Some(format!("https://youtu.be/{video_id}")),
+//             _ => None
+//         };
+//         SongbirdMetadata { 
+//             channels: Some(2),
+//             sample_rate: Some(48000),
+//             title: Some(self.title),
+//             duration: Some(self.duration),
+//             source_url,
+//             ..Default::default()
+//         }
+//     }
+// }
 
 impl VideoMetadata {
     pub fn to_queue_string(&self, playtime: Option<Duration>, limit: Option<usize>) -> String {
@@ -103,7 +100,7 @@ pub struct UserMetadata {
 
 impl From<User> for UserMetadata {
     fn from(value: User) -> Self {
-        let id = value.id.0;
+        let id = value.id.get();
         let name = value.name.clone();
         let avatar_url = value.avatar_url();
         Self { id, name, avatar_url }
@@ -112,7 +109,7 @@ impl From<User> for UserMetadata {
 
 impl From<&User> for UserMetadata {
     fn from(value: &User) -> Self {
-        let id = value.id.0;
+        let id = value.id.get();
         let name = value.name.clone();
         let avatar_url = value.avatar_url();
         Self { id, name, avatar_url }
@@ -136,41 +133,53 @@ pub trait LazyMetadata {
     async fn read_lazy_metadata(&self) -> Option<TrackMetadata>;
     async fn write_lazy_metadata(&mut self, metadata: TrackMetadata);
     async fn generate_lazy_metadata(&mut self) -> Result<TrackMetadata, MetadataError>;
-    async fn read_awake_lazy_metadata(&mut self) -> Result<TrackMetadata, MetadataError>;
+    async fn read_generate_lazy_metadata(&mut self) -> Result<TrackMetadata, MetadataError>;
     async fn awake_lazy_metadata(&mut self) -> Result<(), MetadataError>;
     async fn read_added_by(&self) -> Option<UserMetadata>;
     async fn write_added_by(&mut self, user_metadata: UserMetadata);
-    fn is_lazy(&self) -> bool;
+    async fn is_awake(&self) -> bool;
+    async fn read_query(&self) -> Option<String>;
+    async fn write_query(&mut self, query: String);
 }
 
 #[derive(Debug, ThisError)]
 pub enum MetadataError {
     #[error("")]
-    MissingTitle,
+    MissingQuery,
     #[error("")]
     MissingAddedBy,
     #[error("")]
-    YoutubeScrape(#[from] crate::scrapers::youtube::YoutubeScrapeError)
+    YoutubeScrape(#[from] crate::scrapers::youtube::YoutubeScrapeError),
+}
+
+pub struct Query(pub String);
+
+impl TypeMapKey for Query {
+    type Value = Query;
 }
 
 #[async_trait]
 impl LazyMetadata for TrackHandle {
+    // reads metadata
     async fn read_lazy_metadata(&self) -> Option<TrackMetadata> {
         self.typemap().read().await.get::<TrackMetadata>().cloned()
     }
 
+    // writes metadata
     async fn write_lazy_metadata(&mut self, metadata: TrackMetadata) {
         self.typemap().write().await.insert::<TrackMetadata>(metadata)
     }
 
+    // generates metadata without writing it
     async fn generate_lazy_metadata(&mut self) -> Result<TrackMetadata, MetadataError> {
-        let title = self.metadata().title.as_ref().ok_or(MetadataError::MissingTitle)?;
+        let query = self.read_query().await.ok_or(MetadataError::MissingQuery)?;
         let added_by = self.read_added_by().await.ok_or(MetadataError::MissingAddedBy)?;
-        let video_metadata = crate::scrapers::youtube::search(title).await?;
+        let video_metadata = crate::scrapers::youtube::search(&query).await?;
         Ok(TrackMetadata { video_metadata, added_by })
     }
 
-    async fn read_awake_lazy_metadata(&mut self) -> Result<TrackMetadata, MetadataError> {
+    // awakes and reads metadata
+    async fn read_generate_lazy_metadata(&mut self) -> Result<TrackMetadata, MetadataError> {
         match self.read_lazy_metadata().await {
             Some(metadata) => Ok(metadata),
             None => {
@@ -181,12 +190,12 @@ impl LazyMetadata for TrackHandle {
         }
     }
 
+    // generates and writes metadata
     async fn awake_lazy_metadata(&mut self) -> Result<(), MetadataError> {
-        if self.is_lazy() {
-            if self.read_lazy_metadata().await.is_none() {
-                let metadata = self.generate_lazy_metadata().await?;
-                self.write_lazy_metadata(metadata).await;
-            }
+        if !self.is_awake().await {
+            let metadata = self.generate_lazy_metadata().await?;
+            self.write_lazy_metadata(metadata).await;
+            self.typemap().write().await.remove::<Query>();
         }
         Ok(())
     }
@@ -199,8 +208,17 @@ impl LazyMetadata for TrackHandle {
         self.typemap().write().await.insert::<UserMetadata>(user_metadata)
     }
 
-    fn is_lazy(&self) -> bool {
-        self.metadata().date == Some("$lazy$".to_owned())
+    // check whether the query is present in the typemap
+    async fn is_awake(&self) -> bool {
+        !self.typemap().read().await.contains_key::<Query>()
+    }
+
+    async fn read_query(&self) -> Option<String> {
+        self.typemap().read().await.get::<Query>().map(|query| query.0.clone())
+    }
+
+    async fn write_query(&mut self, query: String) {
+        self.typemap().write().await.insert::<Query>(Query(query))
     }
 }
 
@@ -217,8 +235,8 @@ impl songbird::events::EventHandler for LazyMetadataEventHandler {
             if let Some((track_state, _)) = slice.get(0) {
                 if let Some(mut current_track) = {let handler_guard = self.handler.lock().await; handler_guard.queue().current()} { // have to do this monstrosity to avoid mutex dead locking
                     if track_state.play_time.as_secs() == 0 {
-                        if let Ok(track_metadata) = current_track.read_awake_lazy_metadata().await {
-                            if let Ok(message) = self.channel_id.send_message(&self.http, |msg| msg.set_embed(create_now_playing_embed(track_metadata))).await {
+                        if let Ok(track_metadata) = current_track.read_generate_lazy_metadata().await {
+                            if let Ok(message) = self.channel_id.send_message(&self.http, CreateMessage::new().embed(create_now_playing_embed(track_metadata))).await {
                                 tokio::time::sleep(Duration::from_secs(10)).await;
                                 let _ = message.delete(&self.http).await;
                             }
@@ -235,5 +253,5 @@ impl songbird::events::EventHandler for LazyMetadataEventHandler {
 pub enum AudioSource {
     YouTube { video_id: String },
     File { path: std::path::PathBuf },
-    Jeja { guild_id: u64}
+    Jeja { filename: String }
 }

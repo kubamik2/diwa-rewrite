@@ -6,7 +6,7 @@ use crate::commands::{error::VoiceError, utils::same_voice_channel, error::Comma
 // loops the first track
 #[poise::command(slash_command, prefix_command, guild_only, rename = "loop")]
 pub async fn _loop(ctx: Context<'_>) -> Result<(), CommandError> {
-    let guild = ctx.guild().unwrap();
+    let guild = ctx.guild().unwrap().clone();
     let manager = songbird::get(&ctx.serenity_context()).await.ok_or(CommandError::Voice(VoiceError::NoManager))?;
     
     if let Some(handler) = manager.get(guild.id) {

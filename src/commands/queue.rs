@@ -1,6 +1,6 @@
 use crate::{data::Context, metadata::LazyMetadata};
-use poise::{serenity_prelude::{ReactionType, MessageComponentInteraction}, ReplyHandle};
-use serenity::{ builder::{ CreateEmbed, CreateActionRow }, utils::Color };
+use poise::{serenity_prelude::{ReactionType, ComponentInteraction}, ReplyHandle, CreateReply};
+use serenity::{ builder::{ CreateEmbed, CreateActionRow, CreateEmbedFooter, CreateButton, CreateAllowedMentions }, model::Color };
 use std::{ sync::Arc, time::Duration };
 use tokio::sync::Mutex;
 use songbird::{ Call, tracks::LoopState };
@@ -16,22 +16,23 @@ pub async fn queue(ctx: Context<'_>, page: Option<usize>) -> Result<(), CommandE
     let mut page = page.unwrap_or(1).max(1);
     page -= 1; // represent the page as an index
 
-    let guild = ctx.guild().unwrap();
+    let guild = ctx.guild().unwrap().clone();
     let manager = songbird::get(&ctx.serenity_context()).await.ok_or(VoiceError::NoManager)?;
 
     if let Some(handler) = manager.get(guild.id) {
         let (queue_embed, mut last_page) = assemble_embed(handler.clone(), page).await;
-        let reply_handle = ctx.send(|msg| msg
+        let reply_handle = ctx.send(CreateReply::default()
             .reply(true)
-            .allowed_mentions(|mentions| mentions.replied_user(true))
-            .embed(|embed| {embed.clone_from(&queue_embed); embed})
-            .components(|components| components.set_action_row(create_buttons(page, last_page))) 
+            .allowed_mentions(CreateAllowedMentions::new()
+                .replied_user(true))
+            .embed(queue_embed)
+            .components(vec![create_buttons(page, last_page)])
         ).await?;
 
         let mut collector = reply_handle.message().await?.await_component_interactions(ctx)
             .timeout(Duration::from_secs(30))
             .author_id(ctx.author().id)
-            .build();
+            .stream();
 
         while let Some(message_collector) = collector.next().await {
             match message_collector.data.custom_id.as_str() { // ?? ignore error or return
@@ -70,11 +71,13 @@ async fn search_burst(handler: Arc<Mutex<Call>>, page: usize) {
 }
 
 pub fn create_queue_embed(stringified_metadatas: Vec<String>, page: usize, last_page: usize, queue_len: usize, looping: bool) -> CreateEmbed {
-    let mut embed = CreateEmbed::default();
-    embed.color(Color::PURPLE);
-    embed.title("Queue").footer(|footer| footer.text(format!("Page: {}/{}  Tracks: {}   looping: {}", page + 1, last_page.max(1), queue_len, looping)));
+    let mut embed = CreateEmbed::default()
+        .color(Color::PURPLE)
+        .title("Queue")
+        .footer(CreateEmbedFooter::new(format!("Page: {}/{}  Tracks: {}   looping: {}", page + 1, last_page.max(1), queue_len, looping)));
+
     let mut next_up = String::new();
-    embed.field("Currently Playing:", stringified_metadatas.first().unwrap_or(&"*Nothing*".to_owned()), false);
+    embed = embed.field("Currently Playing:", stringified_metadatas.first().unwrap_or(&"*Nothing*".to_owned()), false);
 
     if stringified_metadatas.len() > 1 {
         for (i, stringified_metadata) in stringified_metadatas.iter().enumerate().skip(1) {
@@ -84,7 +87,7 @@ pub fn create_queue_embed(stringified_metadatas: Vec<String>, page: usize, last_
         next_up = "*Nothing*".to_owned();
     }
 
-    embed.field("Next Up:", next_up, false);
+    embed = embed.field("Next Up:", next_up, false);
     embed
 }
 
@@ -134,20 +137,17 @@ async fn assemble_embed(handler: Arc<Mutex<Call>>, page: usize) -> (CreateEmbed,
 }
 
 pub fn create_buttons(page: usize, last_page: usize) -> CreateActionRow {
-    let mut components = CreateActionRow::default();
-    components.create_button(|button| button.custom_id("prev").emoji(ReactionType::Unicode("◀️".to_owned())).disabled(page == 0));
-    components.create_button(|button| button.custom_id("next").emoji(ReactionType::Unicode("▶️".to_owned())).disabled(page + 1 >= last_page));
-    components.create_button(|button| button.custom_id("reload").emoji(ReactionType::Unicode("🔄".to_owned())));
-    components
+    CreateActionRow::Buttons(vec![
+        CreateButton::new("prev").emoji(ReactionType::Unicode("◀️".to_owned())).disabled(page == 0),
+        CreateButton::new("next").emoji(ReactionType::Unicode("▶️".to_owned())).disabled(page + 1 >= last_page),
+        CreateButton::new("reload").emoji(ReactionType::Unicode("🔄".to_owned()))
+    ])
 }
 
-pub async fn update_queue_embed<'a>(page: usize, last_page: &mut usize, ctx: Context<'a>, handler: Arc<Mutex<Call>>, reply_handle: &ReplyHandle<'a>, message_collector: Arc<MessageComponentInteraction>) -> Result<(), CommandError> {
+pub async fn update_queue_embed<'a>(page: usize, last_page: &mut usize, ctx: Context<'a>, handler: Arc<Mutex<Call>>, reply_handle: &ReplyHandle<'a>, message_collector: ComponentInteraction) -> Result<(), CommandError> {
     let (new_queue_embed, new_last_page) = assemble_embed(handler, page).await;
     *last_page = new_last_page;
-    let _ = reply_handle.edit(ctx.clone(), |msg| msg
-        .embed(|embed| {embed.clone_from(&new_queue_embed); embed})
-        .components(|components| components.create_action_row(|action_row| {action_row.clone_from(&create_buttons(page, *last_page)); action_row}))
-    ).await?;
+    let _ = reply_handle.edit(ctx.clone(), CreateReply::default().embed(new_queue_embed).components(vec![create_buttons(page, *last_page)])).await?;
     let _ = message_collector.defer(ctx).await;
     Ok(())
 }

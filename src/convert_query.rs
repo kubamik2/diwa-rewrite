@@ -1,6 +1,6 @@
-use crate::{metadata::{TrackMetadata, UserMetadata}, lazy_queued::LazyQueued, api_integration::{spotify::{SpotifyClient, SpotifyError}, youtube::{YouTubeClient, YoutubeError}}};
+use crate::{metadata::{AudioSource, TrackMetadata, UserMetadata, VideoMetadata}, api_integration::{spotify::{SpotifyClient, SpotifyError}, youtube::{YouTubeClient, YouTubeError}}};
 use reqwest::Url;
-use songbird::input::{Restartable, Input};
+use songbird::input::Input;
 use thiserror::Error as ThisError;
 
 #[derive(Debug)]
@@ -89,39 +89,137 @@ pub struct MetaInput {
 
 pub struct PendingMetaInput {
     pub input: Input,
+    pub query: String,
     pub added_by: UserMetadata
 }
 
 #[derive(Debug, ThisError)]
 pub enum ConversionError {
     #[error("{0}")]
-    Youtube(#[from] YoutubeError),
+    Youtube(#[from] YouTubeError),
     #[error("{0}")]
     Spotify(#[from] SpotifyError),
     #[error("{0}")]
     MediaType(#[from] MediaTypeError),
-    #[error("")]
-    Input(#[from] songbird::input::error::Error),
     #[error("{0}")]
-    YoutubeScrape(#[from] crate::scrapers::youtube::YoutubeScrapeError)
-    
+    YoutubeScrape(#[from] crate::scrapers::youtube::YoutubeScrapeError),
+    #[error("")]
+    RustyYtdl(#[from] rusty_ytdl::VideoError),
+    #[error("")]
+    NoVideoFormat
 }
 
-pub async fn convert_query(youtube_client: &YouTubeClient, spotify_client: &SpotifyClient, query: &str, added_by: UserMetadata) -> Result<ConvertedQuery, ConversionError> {
+pub enum YouTubeComposer {
+    Query { query: String, client: reqwest::Client },
+    Metadata { metadata: VideoMetadata, client: reqwest::Client  }
+}
+
+async fn find_video_format(video_id: String) -> Result<String, ConversionError> {
+    let video = rusty_ytdl::Video::new(video_id)?;
+    let video_basic_info = video.get_basic_info().await?;
+    
+    let mut stream_url = None;
+    let mut desired_audio_quality_num = 0;
+    for video_format in video_basic_info.formats.iter().filter(|p| if let Some(codecs) = &p.codecs { codecs.contains("opus") } else { false }) {
+        if let Some(audio_quality) = &video_format.audio_quality {
+            let audio_quality_num = match audio_quality.as_str() {
+                "AUDIO_QUALITY_HIGH" => 1,
+                "AUDIO_QUALITY_MEDIUM" => 3,
+                "AUDIO_QUALITY_MIN" => 2,
+                _ => 0
+            };
+
+            if audio_quality_num > desired_audio_quality_num {
+                stream_url = Some(video_format.url.clone());
+                desired_audio_quality_num = audio_quality_num;
+                if audio_quality_num == 3 { break; }
+            }
+        }
+    }
+    Ok(stream_url.ok_or(ConversionError::NoVideoFormat)?)
+}
+
+#[serenity::async_trait]
+impl songbird::input::Compose for YouTubeComposer {
+    fn create(&mut self) -> Result<songbird::input::AudioStream<Box<dyn symphonia::core::io::MediaSource> > ,songbird::input::AudioStreamError> {
+        Err(songbird::input::AudioStreamError::Unsupported)
+    }
+
+    async fn create_async(&mut self) -> Result<songbird::input::AudioStream<Box<dyn symphonia::core::io::MediaSource> > ,songbird::input::AudioStreamError> {
+        match self {
+            Self::Query { query, client } => {
+                match crate::scrapers::youtube::search(&query).await {
+                    Ok(video_metadata) => {
+                        let crate::metadata::AudioSource::YouTube { video_id } = video_metadata.audio_source else { panic!("youtube search returned non youtube source") };
+                        match find_video_format(video_id).await {
+                            Ok(url) => {
+                                let mut http_request = songbird::input::HttpRequest::new(client.clone(), url);
+                                http_request.create_async().await
+                            },
+                            Err(err) => {
+                                Err(songbird::input::AudioStreamError::Fail(err.into()))
+                            }
+                        }
+                    },
+                    Err(err) => Err(songbird::input::AudioStreamError::Fail(err.into()))
+                }
+            },
+            Self::Metadata { metadata, client } => {
+                match metadata.audio_source.clone() {
+                    AudioSource::YouTube { video_id } => {
+                        match find_video_format(video_id.clone()).await {
+                            Ok(url) => {
+                                let mut http_request = songbird::input::HttpRequest::new(client.clone(), url);
+                                http_request.create_async().await
+                            },
+                            Err(err) => {
+                                Err(songbird::input::AudioStreamError::Fail(err.into()))
+                            }
+                        }
+                    },
+                    AudioSource::File { path } => {
+                        songbird::input::File::new(path).create_async().await
+                    },
+                    AudioSource::Jeja { filename } => {
+                        crate::scrapers::jeja::tts_download(&filename, client.clone()).await
+                            .map_err(|err| songbird::input::AudioStreamError::Fail(err.into()))?;
+                        songbird::input::File::new(filename).create_async().await
+                    }
+                }
+            }
+        }
+    }
+
+    async fn aux_metadata(&mut self) -> Result<songbird::input::AuxMetadata,songbird::input::AudioStreamError> {
+        Err(songbird::input::AudioStreamError::Unsupported)
+    }
+
+    fn should_create_async(&self) -> bool {
+        true
+    }
+}
+
+impl Into<Input> for YouTubeComposer {
+    fn into(self) -> Input {
+        Input::Lazy(Box::new(self))
+    }
+}
+
+pub async fn convert_query(youtube_client: &YouTubeClient, spotify_client: &SpotifyClient, query: &str, added_by: UserMetadata, client: reqwest::Client) -> Result<ConvertedQuery, ConversionError> {
     return Ok(match extract_media_type(query)? {
         MediaType::YouTubeVideo { video_id } => {
             let video_metadata = youtube_client.video(&video_id).await?;
-            let restartable = Restartable::new(LazyQueued::Metadata { metadata: video_metadata.clone() }, true).await?;
+            let input = YouTubeComposer::Metadata { metadata: video_metadata.clone(), client }.into();
             let track_metadata = TrackMetadata { video_metadata, added_by };
-            ConvertedQuery::LiveVideo(MetaInput { input: restartable.into(), track_metadata })
+            ConvertedQuery::LiveVideo(MetaInput { input, track_metadata })
         },
         MediaType::YouTubePlaylist { playlist_id } => {
             let playlist_video_metadata = youtube_client.playlist(&playlist_id).await?;
             let mut metainputs = vec![];
             for video_metadata in playlist_video_metadata {
-                let restartable = Restartable::new(LazyQueued::Metadata { metadata: video_metadata.clone() }, true).await?;
+                let input = YouTubeComposer::Metadata { metadata: video_metadata.clone(), client: client.clone() }.into();
                 let track_metadata = TrackMetadata { video_metadata, added_by: added_by.clone() };
-                let metainput = MetaInput { input: restartable.into(), track_metadata };
+                let metainput = MetaInput { input, track_metadata };
                 metainputs.push(metainput);
             }
             ConvertedQuery::LivePlaylist(metainputs)
@@ -129,17 +227,17 @@ pub async fn convert_query(youtube_client: &YouTubeClient, spotify_client: &Spot
         MediaType::SpotifyTrack { track_id } => {
             let track_data = spotify_client.track(&track_id)?;
             let video_metadata = crate::scrapers::youtube::search(&format!("{} by {}", track_data.title, track_data.artists.join(", "))).await?;
-            let restartable = Restartable::new(LazyQueued::Metadata { metadata: video_metadata.clone() }, true).await?;
+            let input = YouTubeComposer::Metadata { metadata: video_metadata.clone(), client }.into();
             let track_metadata = TrackMetadata { video_metadata, added_by };
-            ConvertedQuery::LiveVideo(MetaInput { input: restartable.into(), track_metadata })
+            ConvertedQuery::LiveVideo(MetaInput { input, track_metadata })
         },
         MediaType::SpotifyPlaylist { playlist_id } => {
             let playlist_data = spotify_client.playlist(&playlist_id)?;
             let mut metainputs = vec![];
             for track_data in playlist_data {
                 let query = format!("{} by {}", track_data.title, track_data.artists.join(", "));
-                let restartable = Restartable::new(LazyQueued::Query { query }, true).await?;
-                let metainput = PendingMetaInput { input: restartable.into(), added_by: added_by.clone() };
+                let input = YouTubeComposer::Query { query: query.clone(), client: client.clone() }.into();
+                let metainput = PendingMetaInput { input, added_by: added_by.clone(), query };
                 metainputs.push(metainput);
             }
             ConvertedQuery::PendingPlaylist(metainputs)
@@ -149,17 +247,17 @@ pub async fn convert_query(youtube_client: &YouTubeClient, spotify_client: &Spot
             let mut metainputs = vec![];
             for track_data in album_data {
                 let query = format!("{} by {}", track_data.title, track_data.artists.join(", "));
-                let restartable = Restartable::new(LazyQueued::Query { query }, true).await?;
-                let metainput = PendingMetaInput { input: restartable.into(), added_by: added_by.clone() };
+                let input = YouTubeComposer::Query { query: query.clone(), client: client.clone() }.into();
+                let metainput = PendingMetaInput { input, added_by: added_by.clone(), query };
                 metainputs.push(metainput);
             }
             ConvertedQuery::PendingPlaylist(metainputs)
         },
         MediaType::Search { query } => {
             let video_metadata = crate::scrapers::youtube::search(&query).await?;
-            let restartable = Restartable::new(LazyQueued::Metadata { metadata: video_metadata.clone() }, true).await?;
+            let input = YouTubeComposer::Metadata { metadata: video_metadata.clone(), client }.into();
             let track_metadata = TrackMetadata { video_metadata, added_by };
-            ConvertedQuery::LiveVideo(MetaInput { input: restartable.into(), track_metadata })
+            ConvertedQuery::LiveVideo(MetaInput { input, track_metadata })
         }
     });
 }

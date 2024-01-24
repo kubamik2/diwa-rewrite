@@ -2,7 +2,7 @@ use crate::{data::Context, metadata::LazyMetadataEventHandler, commands::error::
 
 use crate::commands::{error::VoiceError, utils::should_move_channels};
 
-// tells a joke from jeja.pl
+// joins the voice channel
 #[poise::command(slash_command, prefix_command, guild_only)]
 pub async fn join(ctx: Context<'_>) -> Result<(), CommandError> {
     let guild = ctx.guild().unwrap().clone();

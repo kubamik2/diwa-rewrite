@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use crate::{data::Context, metadata::{LazyMetadataEventHandler, LazyMetadata, TrackMetadata, VideoMetadata, UserMetadata}, utils::format_duration, commands::error::CommandError};
+use crate::{data::Context, metadata::{LazyMetadataEventHandler, LazyMetadata, TrackMetadata, VideoMetadata, UserMetadata}, commands::error::CommandError};
 use poise::CreateReply;
 use serenity::{builder::{CreateAllowedMentions, CreateEmbed}, model::Color};
 use crate::commands::{error::VoiceError, utils::should_move_channels};
@@ -37,7 +37,7 @@ pub async fn jeja(ctx: Context<'_>) -> Result<(), CommandError> {
         video_metadata: VideoMetadata {
             title: "Dowcip".to_string(),
             duration: Duration::from_secs(0),
-            audio_source: crate::metadata::AudioSource::Jeja { filename: format!("{}.mp3", "test") }
+            audio_source: crate::metadata::AudioSource::Jeja { filename: format!("{}.mp3", guild.id.get()) }
         },
         added_by: UserMetadata {
             name: ctx.author().name.clone(),
@@ -58,7 +58,7 @@ pub async fn jeja(ctx: Context<'_>) -> Result<(), CommandError> {
                     .replied_user(true))
                 .embed(CreateEmbed::new()
                     .title("Added Track:")
-                    .description(format!("{} | {}", track_metadata.video_metadata.title, format_duration(track_metadata.video_metadata.duration, None)))
+                    .description(track_metadata.video_metadata.title)
                     .color(Color::PURPLE))
             ).await?;
             ctx.data().add_to_cleanup(reply_handle, std::time::Duration::from_secs(10)).await;

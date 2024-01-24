@@ -1,4 +1,4 @@
-use serenity::builder::{CreateEmbed, CreateEmbedAuthor};
+use serenity::{builder::{CreateEmbed, CreateEmbedAuthor}, model::Color};
 
 use crate::{metadata::AudioSource, metadata::TrackMetadata};
 
@@ -32,7 +32,8 @@ pub fn create_now_playing_embed(track_metadata: TrackMetadata) -> CreateEmbed {
     let video_metadata = track_metadata.video_metadata;
     let formatted_duration = format_duration(video_metadata.duration, None);
     let mut embed = CreateEmbed::default()
-        .title("Now Playing:");
+        .title("Now Playing:")
+        .color(Color::FADED_PURPLE);
 
     match video_metadata.audio_source {
         AudioSource::YouTube { video_id } => {

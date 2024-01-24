@@ -29,23 +29,6 @@ pub struct VideoMetadata {
     pub audio_source: AudioSource
 }
 
-// impl Into<SongbirdMetadata> for VideoMetadata {
-//     fn into(self) -> SongbirdMetadata {
-//         let source_url = match self.audio_source {
-//             AudioSource::YouTube { video_id } => Some(format!("https://youtu.be/{video_id}")),
-//             _ => None
-//         };
-//         SongbirdMetadata { 
-//             channels: Some(2),
-//             sample_rate: Some(48000),
-//             title: Some(self.title),
-//             duration: Some(self.duration),
-//             source_url,
-//             ..Default::default()
-//         }
-//     }
-// }
-
 impl VideoMetadata {
     pub fn to_queue_string(&self, playtime: Option<Duration>, limit: Option<usize>) -> String {
         let mut formatted_duration = format_duration(self.duration, None);
@@ -231,20 +214,19 @@ pub struct LazyMetadataEventHandler {
 #[async_trait]
 impl songbird::events::EventHandler for LazyMetadataEventHandler {
     async fn act(&self, ctx: &songbird::EventContext<'_>) -> Option<songbird::Event> {
-        if let EventContext::Track(slice) = ctx {
-            if let Some((track_state, _)) = slice.get(0) {
-                if let Some(mut current_track) = {let handler_guard = self.handler.lock().await; handler_guard.queue().current()} { // have to do this monstrosity to avoid mutex dead locking
-                    if track_state.play_time.as_secs() == 0 {
-                        if let Ok(track_metadata) = current_track.read_generate_lazy_metadata().await {
-                            if let Ok(message) = self.channel_id.send_message(&self.http, CreateMessage::new().embed(create_now_playing_embed(track_metadata))).await {
-                                tokio::time::sleep(Duration::from_secs(10)).await;
-                                let _ = message.delete(&self.http).await;
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        let EventContext::Track(slice) = ctx else { return None; };
+        let Some((track_state, _)) = slice.get(0) else { return None; };
+        let Some(mut current_track) = ({ let handler_guard = self.handler.lock().await; handler_guard.queue().current() }) else { return None; }; // have to do this monstrosity to avoid mutex dead locking
+       
+        if track_state.play_time.as_secs() != 0 { return None; } ;
+
+        let Ok(track_metadata) = current_track.read_generate_lazy_metadata().await else { return None; };
+
+        let Ok(message) = self.channel_id.send_message(&self.http, CreateMessage::new().embed(create_now_playing_embed(track_metadata))).await else { return None; };
+        
+        tokio::time::sleep(Duration::from_secs(10)).await;
+        let _ = message.delete(&self.http).await;
+        
         None
     }
 }

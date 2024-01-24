@@ -5,10 +5,8 @@ use poise::CreateReply;
 use serenity::{model::Color, builder::{CreateEmbed, CreateAllowedMentions}};
 use songbird::{Call, tracks::TrackHandle};
 use tokio::sync::Mutex;
-
-//use songbird::create_player;
 use crate::commands::{
-    utils::same_voice_channel,
+    utils::should_move_channels,
     error::{VoiceError, CommandError}
 };
 
@@ -23,23 +21,25 @@ pub async fn play(ctx: Context<'_>, query: Vec<String>) -> Result<(), CommandErr
     let manager = songbird::get(&ctx.serenity_context()).await.ok_or(VoiceError::NoManager)?;
     let handler = manager.get_or_insert(guild.id);
 
-    if !same_voice_channel(&guild, &ctx.author().id, handler.clone()).await { return Err(VoiceError::DifferentVoiceChannel.into()) }
-
+    if !should_move_channels(&ctx, &guild, user_voice).await { return Err(VoiceError::DifferentVoiceChannel.into()) }
+   
     let connection = handler.lock().await.current_connection().and_then(|conn| conn.channel_id);
 
     manager.join(guild.id, user_voice.channel_id.unwrap()).await?;
 
-    let mut handler_guard = handler.lock().await;
+    let was_empty = {
+        let mut handler_guard = handler.lock().await;
 
-    // add event handler upon joining a channel
-    if connection.is_none() { 
-        handler_guard.add_global_event(songbird::Event::Track(songbird::TrackEvent::Play), LazyMetadataEventHandler { handler: handler.clone(), channel_id: ctx.channel_id(), http: ctx.serenity_context().http.clone() });
-    }
+        // add event handler upon joining a channel
+        if connection.is_none() { 
+            handler_guard.add_global_event(songbird::Event::Track(songbird::TrackEvent::Play), LazyMetadataEventHandler { handler: handler.clone(), channel_id: ctx.channel_id(), http: ctx.serenity_context().http.clone() });
+        }
 
-    let _ = handler_guard.deafen(true).await; 
-    let was_empty = handler_guard.queue().is_empty();
-    drop(handler_guard);
+        let _ = handler_guard.deafen(true).await; 
 
+        handler_guard.queue().is_empty()
+    };
+    
     let converted_query = ctx.data().convert_query(&query, ctx.author().into()).await?;
 
     match converted_query {

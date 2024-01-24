@@ -40,7 +40,8 @@ async fn main() -> Result<(), DynError> {
                 commands::_loop::_loop(),
                 commands::stop::stop(),
                 commands::register::register(),
-                commands::help::help()
+                commands::help::help(),
+                commands::join::join()
             ],
             prefix_options: poise::PrefixFrameworkOptions { prefix: Some("-".to_owned()), ..Default::default() },
             post_command: |ctx| Box::pin(post_command(ctx)),

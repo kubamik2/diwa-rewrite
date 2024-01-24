@@ -10,5 +10,6 @@ pub mod _loop;
 pub mod stop;
 pub mod register;
 pub mod help;
+pub mod join;
 pub mod error;
 pub mod utils;

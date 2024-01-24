@@ -3,8 +3,7 @@ use std::time::Duration;
 use crate::{data::Context, metadata::{LazyMetadataEventHandler, LazyMetadata, TrackMetadata, VideoMetadata, UserMetadata}, utils::format_duration, commands::error::CommandError};
 use poise::CreateReply;
 use serenity::{builder::{CreateAllowedMentions, CreateEmbed}, model::Color};
-
-use crate::commands::{error::VoiceError, utils::same_voice_channel};
+use crate::commands::{error::VoiceError, utils::should_move_channels};
 
 // tells a joke from jeja.pl
 #[poise::command(slash_command, prefix_command, guild_only)]
@@ -15,27 +14,29 @@ pub async fn jeja(ctx: Context<'_>) -> Result<(), CommandError> {
     let manager = songbird::get(&ctx.serenity_context()).await.ok_or(VoiceError::NoManager)?;
     let handler = manager.get_or_insert(guild.id);
 
-    if !same_voice_channel(&guild, &ctx.author().id, handler.clone()).await { return Err(VoiceError::DifferentVoiceChannel.into()) }
+    if !should_move_channels(&ctx, &guild, user_voice).await { return Err(VoiceError::DifferentVoiceChannel.into()) }
 
     let connection = handler.lock().await.current_connection().and_then(|conn| conn.channel_id);
 
     let handler = manager.join(guild.id, user_voice.channel_id.unwrap()).await?;
 
-    let mut handler_guard = handler.lock().await;
+    let was_empty = {
+        let mut handler_guard = handler.lock().await;
 
-    // add event handler upon joining a channel
-    if connection.is_none() { 
-        handler_guard.add_global_event(songbird::Event::Track(songbird::TrackEvent::Play), LazyMetadataEventHandler { handler: handler.clone(), channel_id: ctx.channel_id(), http: ctx.serenity_context().http.clone() });
-    }
+        // add event handler upon joining a channel
+        if connection.is_none() { 
+            handler_guard.add_global_event(songbird::Event::Track(songbird::TrackEvent::Play), LazyMetadataEventHandler { handler: handler.clone(), channel_id: ctx.channel_id(), http: ctx.serenity_context().http.clone() });
+        }
 
-    let _ = handler_guard.deafen(true).await; 
-    let was_empty = handler_guard.queue().is_empty();
-    drop(handler_guard);
+        let _ = handler_guard.deafen(true).await; 
+
+        handler_guard.queue().is_empty()
+    };
 
     let track_metadata = TrackMetadata {
         video_metadata: VideoMetadata {
             title: "Dowcip".to_string(),
-            duration: Duration::from_secs(20),
+            duration: Duration::from_secs(0),
             audio_source: crate::metadata::AudioSource::Jeja { filename: format!("{}.mp3", "test") }
         },
         added_by: UserMetadata {

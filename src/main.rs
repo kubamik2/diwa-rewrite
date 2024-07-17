@@ -13,15 +13,22 @@ use poise::FrameworkError;
 use serenity::prelude::*;
 use songbird::SerenityInit;
 mod commands;
-const DISCORD_TOKEN_ENV: &str = "DISCORD_TOKEN_TESTS";
 
 #[tokio::main]
 async fn main() -> Result<(), DynError> {
-    dotenv::dotenv().map_err(|_| AppError::EnvFile)?;
+    if let Some(path_string) = std::env::args().nth(1) {
+        let path = std::path::Path::new(&path_string);
+        if !path.exists() { return Err(AppError::EnvFile.into()) }
+        dotenv::from_path(path).map_err(|_| AppError::EnvFile)?;
+    } else {
+        dotenv::dotenv().map_err(|_| AppError::EnvFile)?;
+    }
+    env_logger::init();
+    
     let youtube_client = api_integration::youtube::YouTubeClient::new().await?;
     let spotify_client = api_integration::spotify::SpotifyClient::new()?;
 
-    let token = std::env::var(DISCORD_TOKEN_ENV).map_err(|_| AppError::EnvVarsMissing { var: vec![DISCORD_TOKEN_ENV.to_string()] })?;
+    let token = std::env::var("DISCORD_TOKEN").map_err(|_| AppError::EnvVarsMissing { var: vec!["DISCORD_TOKEN".to_string()] })?;
     let intents = GatewayIntents::GUILD_MESSAGES | GatewayIntents::MESSAGE_CONTENT
                                 | GatewayIntents::GUILD_VOICE_STATES | GatewayIntents::GUILD_MEMBERS
                                 | GatewayIntents::DIRECT_MESSAGES | GatewayIntents::GUILD_PRESENCES
@@ -74,6 +81,7 @@ async fn post_command<'a>(ctx: Context<'a>) {
 }
 
 async fn on_error<'a>(err: FrameworkError<'a, Data, CommandError>) {
+    log::error!("{:?}", err.to_string());
     match err {
         FrameworkError::Command { error, ctx, .. } => {
             let message = error.to_string();

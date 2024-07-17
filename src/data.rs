@@ -26,7 +26,13 @@ impl Data {
     }
 
     pub async fn convert_query(&self, query: &str, added_by: UserMetadata) -> Result<ConvertedQuery, crate::convert_query::ConversionError> {
-        crate::convert_query::convert_query(&self.youtube_client, &self.spotify_client, query, added_by, self.reqwest_client.clone()).await
+        let result = crate::convert_query::convert_query(&self.youtube_client, &self.spotify_client, query, added_by, self.reqwest_client.clone()).await;
+
+        if let Err(err) = &result {
+            log::error!("{}", err.to_string());
+        }
+
+        result
     }
 
     pub async fn add_to_cleanup<'a>(&self, reply_handle: ReplyHandle<'a>, delay: std::time::Duration) {

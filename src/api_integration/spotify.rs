@@ -79,7 +79,7 @@ impl SpotifyClient {
 
     pub fn track(&self, id: &str) -> Result<SpotifyTrackData, SpotifyError> {
         let track_id = TrackId::from_id(id)?;
-        let track = self.client.track(track_id)?;
+        let track = self.client.track(track_id, None)?;
 
         Ok(SpotifyTrackData::from(track))
     }
@@ -120,7 +120,7 @@ impl SpotifyClient {
 
     pub fn album(&self, id: &str) -> Result<Vec<SpotifyTrackData>, SpotifyError> {
         let album_id = AlbumId::from_id(id)?;
-        let album = match self.client.album(album_id) {
+        let album = match self.client.album(album_id, None) {
             Ok(album) => album,
             Err(err) => {
                 if let ClientError::Http(http_error) = &err {

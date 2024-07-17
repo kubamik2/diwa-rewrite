@@ -51,7 +51,7 @@ impl YouTubeClient {
         };
 
         let youtube_auth = oauth2::ServiceAccountAuthenticator::builder(youtube_secret).build().await?;
-        Ok(Self { client: YouTube::new(Client::builder().build(HttpsConnectorBuilder::new().with_native_roots().https_or_http().enable_http1().enable_http2().build()), youtube_auth) })
+        Ok(Self { client: YouTube::new(Client::builder().build(HttpsConnectorBuilder::new().with_native_roots()?.https_or_http().enable_http1().enable_http2().build()), youtube_auth) })
     }
 
     pub async fn video(&self, id: &str) -> Result<VideoMetadata, YouTubeError> {

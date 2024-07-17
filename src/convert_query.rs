@@ -120,7 +120,7 @@ async fn find_video_format(video_id: String) -> Result<String, ConversionError> 
     
     let mut stream_url = None;
     let mut desired_audio_quality_num = 0;
-    for video_format in video_basic_info.formats.iter().filter(|p| if let Some(codecs) = &p.codecs { codecs.contains("opus") } else { false }) {
+    for video_format in video_basic_info.formats.iter().filter(|p| p.mime_type.codecs.contains(&"opus".to_string())) {
         if let Some(audio_quality) = &video_format.audio_quality {
             let audio_quality_num = match audio_quality.as_str() {
                 "AUDIO_QUALITY_HIGH" => 1,
@@ -136,6 +136,7 @@ async fn find_video_format(video_id: String) -> Result<String, ConversionError> 
             }
         }
     }
+    if stream_url.is_none() { log::warn!("find_video_format stream_url is None")}
     Ok(stream_url.ok_or(ConversionError::NoVideoFormat)?)
 }
 

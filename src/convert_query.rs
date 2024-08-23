@@ -120,12 +120,12 @@ async fn find_video_format(video_id: String) -> Result<String, ConversionError> 
     
     let mut stream_url = None;
     let mut desired_audio_quality_num = 0;
-    for video_format in video_basic_info.formats.iter().filter(|p| p.mime_type.codecs.contains(&"opus".to_string())) {
+    for video_format in video_basic_info.formats.into_iter().filter(|p| p.has_audio && !p.has_video) {//video_basic_info.formats.iter().filter(|p| p.mime_type.codecs.contains(&"opus".to_string())) {
         if let Some(audio_quality) = &video_format.audio_quality {
             let audio_quality_num = match audio_quality.as_str() {
-                "AUDIO_QUALITY_HIGH" => 1,
+                "AUDIO_QUALITY_HIGH" => 2,
                 "AUDIO_QUALITY_MEDIUM" => 3,
-                "AUDIO_QUALITY_MIN" => 2,
+                "AUDIO_QUALITY_MIN" => 1,
                 _ => 0
             };
 
@@ -170,7 +170,13 @@ impl songbird::input::Compose for YouTubeComposer {
                     AudioSource::YouTube { video_id } => {
                         match find_video_format(video_id.clone()).await {
                             Ok(url) => {
-                                let mut http_request = songbird::input::HttpRequest::new(client.clone(), url);
+                                let mut headers = reqwest::header::HeaderMap::new();
+                                headers.insert(reqwest::header::USER_AGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:129.0) Gecko/20100101 Firefox/129.0".parse().unwrap());
+                                headers.insert(reqwest::header::ACCEPT, "image/avif,image/webp,image/png,image/svg+xml,image/*;q=0.8,*/*;q=0.5".parse().unwrap());
+                                headers.insert(reqwest::header::CONNECTION, "keep-alive".parse().unwrap());
+                                headers.insert(reqwest::header::ACCEPT_ENCODING, "gzip, deflate, br, zstd".parse().unwrap());
+                                headers.insert(reqwest::header::ACCEPT_LANGUAGE, "pl,en-US;q=0.7,en;q=0.3".parse().unwrap());
+                                let mut http_request = songbird::input::HttpRequest::new_with_headers(client.clone(), url, headers);
                                 http_request.create_async().await
                             },
                             Err(err) => {

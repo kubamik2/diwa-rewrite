@@ -2,10 +2,12 @@ use std::{time::Duration, sync::Arc};
 
 use crate::utils::{format_duration, create_now_playing_embed};
 use serenity::{http::Http, builder::CreateMessage};
-use songbird::{typemap::TypeMapKey, tracks::TrackHandle, Call, EventContext};
+use songbird::{tracks::TrackHandle, Call, EventContext};
 use poise::{ async_trait, serenity_prelude::{User, ChannelId} };
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 use thiserror::Error as ThisError;
+use typemap::Key as TypeMapKey;
+use typemap::ShareMap;
 
 #[derive(Debug, Clone, Hash)]
 pub struct TrackMetadata {
@@ -66,9 +68,7 @@ impl VideoMetadata {
                 queue_string
             },
             AudioSource::Jeja { .. } => {
-                let queue_string = format!("{}", self.title);
-
-                queue_string
+                self.title.clone()
             }
         }
     }
@@ -145,12 +145,13 @@ impl TypeMapKey for Query {
 impl LazyMetadata for TrackHandle {
     // reads metadata
     async fn read_lazy_metadata(&self) -> Option<TrackMetadata> {
-        self.typemap().read().await.get::<TrackMetadata>().cloned()
+        self.data::<RwLock<ShareMap>>().read().await.get::<TrackMetadata>().cloned()
+
     }
 
     // writes metadata
     async fn write_lazy_metadata(&mut self, metadata: TrackMetadata) {
-        self.typemap().write().await.insert::<TrackMetadata>(metadata)
+        self.data::<RwLock<ShareMap>>().write().await.insert::<TrackMetadata>(metadata);
     }
 
     // generates metadata without writing it
@@ -178,30 +179,30 @@ impl LazyMetadata for TrackHandle {
         if !self.is_awake().await {
             let metadata = self.generate_lazy_metadata().await?;
             self.write_lazy_metadata(metadata).await;
-            self.typemap().write().await.remove::<Query>();
+            self.data::<RwLock<ShareMap>>().write().await.remove::<Query>();
         }
         Ok(())
     }
 
     async fn read_added_by(&self) -> Option<UserMetadata> {
-        self.typemap().read().await.get::<UserMetadata>().cloned()
+        self.data::<RwLock<ShareMap>>().read().await.get::<UserMetadata>().cloned()
     }
 
     async fn write_added_by(&mut self, user_metadata: UserMetadata) {
-        self.typemap().write().await.insert::<UserMetadata>(user_metadata)
+        self.data::<RwLock<ShareMap>>().write().await.insert::<UserMetadata>(user_metadata);
     }
 
     // check whether the query is present in the typemap
     async fn is_awake(&self) -> bool {
-        !self.typemap().read().await.contains_key::<Query>()
+        !self.data::<RwLock<ShareMap>>().read().await.contains::<Query>()
     }
 
     async fn read_query(&self) -> Option<String> {
-        self.typemap().read().await.get::<Query>().map(|query| query.0.clone())
+        self.data::<RwLock<ShareMap>>().read().await.get::<Query>().map(|query| query.0.clone())
     }
 
     async fn write_query(&mut self, query: String) {
-        self.typemap().write().await.insert::<Query>(Query(query))
+        self.data::<RwLock<ShareMap>>().write().await.insert::<Query>(Query(query));
     }
 }
 

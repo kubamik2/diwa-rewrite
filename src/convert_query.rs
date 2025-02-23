@@ -171,7 +171,15 @@ impl songbird::input::Compose for YouTubeComposer {
             Self::Metadata { metadata, client } => {
                 match metadata.audio_source.clone() {
                     AudioSource::YouTube { video_id } => {
-                        songbird::input::YoutubeDl::new(client.clone(), format!("https://www.youtube.com/watch?v={}", video_id)).create_async().await
+                        match find_video_format(video_id).await {
+                            Ok(url) => {
+                                let mut http_request = songbird::input::HttpRequest::new(client.clone(), url);
+                                http_request.create_async().await
+                            },
+                            Err(err) => {
+                                Err(songbird::input::AudioStreamError::Fail(err.into()))
+                            }
+                        }
                     },
                     AudioSource::File { path } => {
                         songbird::input::File::new(path).create_async().await

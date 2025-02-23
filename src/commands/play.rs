@@ -3,12 +3,13 @@ use std::sync::Arc;
 use crate::{data::Context, convert_query::{ConvertedQuery, MetaInput, PendingMetaInput}, metadata::{LazyMetadata, LazyMetadataEventHandler}, utils::format_duration};
 use poise::CreateReply;
 use serenity::{model::Color, builder::{CreateEmbed, CreateAllowedMentions}};
-use songbird::{Call, tracks::TrackHandle};
-use tokio::sync::Mutex;
+use songbird::{Call, tracks::TrackHandle, tracks::Track};
+use tokio::sync::{Mutex, RwLock};
 use crate::commands::{
     utils::should_move_channels,
     error::{VoiceError, CommandError}
 };
+use typemap::ShareMap;
 
 // plays audio from an url or a search query
 #[poise::command(slash_command, prefix_command, guild_only, aliases("p"))]
@@ -137,14 +138,16 @@ pub async fn play(ctx: Context<'_>, query: Vec<String>) -> Result<(), CommandErr
 
 async fn add_live_video(handler: Arc<Mutex<Call>>, metainput: MetaInput) -> TrackHandle {
     let MetaInput { input, track_metadata } = metainput;
-    let mut track_handle = handler.lock().await.enqueue_input(input).await;
+    let track = Track::new_with_data(input, Arc::new(RwLock::new(ShareMap::custom())));
+    let mut track_handle = handler.lock().await.enqueue(track).await;
     track_handle.write_lazy_metadata(track_metadata).await;
     track_handle
 }
 
 async fn add_pending_video(handler: Arc<Mutex<Call>>, pending_metainput: PendingMetaInput) -> TrackHandle {
     let PendingMetaInput { input, query, added_by } = pending_metainput;
-    let mut track_handle = handler.lock().await.enqueue_input(input).await;
+    let track = Track::new_with_data(input, Arc::new(RwLock::new(ShareMap::custom())));
+    let mut track_handle = handler.lock().await.enqueue(track).await;
     track_handle.write_added_by(added_by).await;
     track_handle.write_query(query).await;
     track_handle
@@ -153,7 +156,8 @@ async fn add_pending_video(handler: Arc<Mutex<Call>>, pending_metainput: Pending
 async fn add_live_videos(handler: Arc<Mutex<Call>>, metainputs: std::vec::IntoIter<MetaInput>) {
     let mut handler_guard = handler.lock().await;
     for metainput in metainputs {
-        let mut track_handle = handler_guard.enqueue_input(metainput.input).await;
+        let track = Track::new_with_data(metainput.input, Arc::new(RwLock::new(ShareMap::custom())));
+        let mut track_handle = handler_guard.enqueue(track).await;
         track_handle.write_lazy_metadata(metainput.track_metadata).await;
     }
 }
@@ -161,7 +165,8 @@ async fn add_live_videos(handler: Arc<Mutex<Call>>, metainputs: std::vec::IntoIt
 async fn add_pending_videos(handler: Arc<Mutex<Call>>, metainputs: std::vec::IntoIter<PendingMetaInput>) {
     let mut handler_guard = handler.lock().await;
     for metainput in metainputs {
-        let mut track_handle = handler_guard.enqueue_input(metainput.input).await;
+        let track = Track::new_with_data(metainput.input, Arc::new(RwLock::new(ShareMap::custom())));
+        let mut track_handle = handler_guard.enqueue(track).await;
         track_handle.write_added_by(metainput.added_by).await;
         track_handle.write_query(metainput.query).await;
     }
